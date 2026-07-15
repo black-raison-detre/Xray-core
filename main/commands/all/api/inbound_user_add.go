@@ -12,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf"
 	"github.com/xtls/xray-core/infra/conf/serial"
+	"github.com/xtls/xray-core/proxy/anytls"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -83,6 +84,8 @@ func extractInboundUsers(inb *core.InboundHandlerConfig) []*protocol.User {
 	case *vlessin.Config:
 		return ty.Users
 	case *trojan.ServerConfig:
+		return ty.Users
+	case *anytls.ServerConfig:
 		return ty.Users
 	case *shadowsocks.ServerConfig:
 		return ty.Users

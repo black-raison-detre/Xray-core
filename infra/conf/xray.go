@@ -29,6 +29,7 @@ var (
 		"vless":         func() interface{} { return new(VLessInboundConfig) },
 		"vmess":         func() interface{} { return new(VMessInboundConfig) },
 		"trojan":        func() interface{} { return new(TrojanServerConfig) },
+		"anytls":        func() interface{} { return new(AnyTLSServerConfig) },
 		"wireguard":     func() interface{} { return &WireGuardConfig{IsClient: false} },
 		"hysteria":      func() interface{} { return new(HysteriaServerConfig) },
 		"tun":           func() interface{} { return new(TunConfig) },
@@ -46,6 +47,7 @@ var (
 		"vless":       func() interface{} { return new(VLessOutboundConfig) },
 		"vmess":       func() interface{} { return new(VMessOutboundConfig) },
 		"trojan":      func() interface{} { return new(TrojanClientConfig) },
+		"anytls":      func() interface{} { return new(AnyTLSClientConfig) },
 		"hysteria":    func() interface{} { return new(HysteriaClientConfig) },
 		"dns":         func() interface{} { return new(DNSOutboundConfig) },
 		"wireguard":   func() interface{} { return &WireGuardConfig{IsClient: true} },
@@ -179,6 +181,10 @@ func (c *InboundDetourConfig) Build() (*core.InboundHandlerConfig, error) {
 			errors.LogWarning(context.Background(), `REALITY: Listening on non-443 ports may get your IP blocked by the GFW`)
 		}
 	}
+	if strings.EqualFold(c.Protocol, "anytls") && (c.StreamSetting == nil ||
+		(strings.ToLower(c.StreamSetting.Security) != "tls" && strings.ToLower(c.StreamSetting.Security) != "reality")) {
+		return nil, errors.New("AnyTLS inbound requires TLS or REALITY stream security")
+	}
 	if c.SniffingConfig != nil {
 		s, err := c.SniffingConfig.Build()
 		if err != nil {
@@ -296,6 +302,14 @@ func (c *OutboundDetourConfig) Build() (*core.OutboundHandlerConfig, error) {
 	}
 	if err := c.checkChainProxyConfig(); err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(c.Protocol, "anytls") {
+		if c.StreamSetting == nil || (strings.ToLower(c.StreamSetting.Security) != "tls" && strings.ToLower(c.StreamSetting.Security) != "reality") {
+			return nil, errors.New("AnyTLS outbound requires TLS or REALITY stream security")
+		}
+		if c.MuxSettings != nil && c.MuxSettings.Enabled {
+			return nil, errors.New("AnyTLS outbound does not support mux.enabled")
+		}
 	}
 
 	if c.SendThrough != nil {
