@@ -15,7 +15,15 @@ import (
 )
 
 func cipherFromString(c string) shadowsocks.CipherType {
-	switch strings.ToLower(c) {
+	switch strings.ToLower(strings.TrimSpace(c)) {
+	case "aes-128-cfb":
+		return shadowsocks.CipherType_AES_128_CFB
+	case "aes-256-cfb":
+		return shadowsocks.CipherType_AES_256_CFB
+	case "chacha20":
+		return shadowsocks.CipherType_CHACHA20
+	case "chacha20-ietf":
+		return shadowsocks.CipherType_CHACHA20_IETF
 	case "aes-128-gcm", "aead_aes_128_gcm":
 		return shadowsocks.CipherType_AES_128_GCM
 	case "aes-256-gcm", "aead_aes_256_gcm":
@@ -24,9 +32,59 @@ func cipherFromString(c string) shadowsocks.CipherType {
 		return shadowsocks.CipherType_CHACHA20_POLY1305
 	case "xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305":
 		return shadowsocks.CipherType_XCHACHA20_POLY1305
+	case "none":
+		return shadowsocks.CipherType_NONE
+	case "table":
+		return shadowsocks.CipherType_TABLE
+	case "rc4":
+		return shadowsocks.CipherType_RC4
+	case "rc4-md5-6":
+		return shadowsocks.CipherType_RC4_MD5_6
+	case "rc4-md5":
+		return shadowsocks.CipherType_RC4_MD5
+	case "aes-192-cfb":
+		return shadowsocks.CipherType_AES_192_CFB
+	case "aes-128-ctr":
+		return shadowsocks.CipherType_AES_128_CTR
+	case "aes-192-ctr":
+		return shadowsocks.CipherType_AES_192_CTR
+	case "aes-256-ctr":
+		return shadowsocks.CipherType_AES_256_CTR
+	case "bf-cfb":
+		return shadowsocks.CipherType_BF_CFB
+	case "camellia-128-cfb":
+		return shadowsocks.CipherType_CAMELLIA_128_CFB
+	case "camellia-192-cfb":
+		return shadowsocks.CipherType_CAMELLIA_192_CFB
+	case "camellia-256-cfb":
+		return shadowsocks.CipherType_CAMELLIA_256_CFB
+	case "cast5-cfb":
+		return shadowsocks.CipherType_CAST5_CFB
+	case "des-cfb":
+		return shadowsocks.CipherType_DES_CFB
+	case "idea-cfb":
+		return shadowsocks.CipherType_IDEA_CFB
+	case "rc2-cfb":
+		return shadowsocks.CipherType_RC2_CFB
+	case "seed-cfb":
+		return shadowsocks.CipherType_SEED_CFB
+	case "salsa20":
+		return shadowsocks.CipherType_SALSA20
 	default:
 		return shadowsocks.CipherType_UNKNOWN
 	}
+}
+
+func isLegacyShadowsocksCipher(cipher shadowsocks.CipherType) bool {
+	return cipher != shadowsocks.CipherType_UNKNOWN &&
+		(cipher < shadowsocks.CipherType_AES_128_GCM || cipher > shadowsocks.CipherType_XCHACHA20_POLY1305)
+}
+
+func warnLegacyShadowsocksCipher(method string) {
+	errors.PrintNonRemovalDeprecatedFeatureWarning(
+		"Legacy Shadowsocks cipher "+strings.ToLower(strings.TrimSpace(method))+" (compatibility only; cryptographically obsolete)",
+		"Shadowsocks AEAD or a modern outbound protocol",
+	)
 }
 
 type ShadowsocksUserConfig struct {
@@ -74,6 +132,9 @@ func (v *ShadowsocksServerConfig) Build() (proto.Message, error) {
 				if account.Password == "" {
 					return errors.New("Shadowsocks password is not specified.")
 				}
+				if isLegacyShadowsocksCipher(account.CipherType) {
+					warnLegacyShadowsocksCipher(user.Cipher)
+				}
 				if account.CipherType < shadowsocks.CipherType_AES_128_GCM ||
 					account.CipherType > shadowsocks.CipherType_XCHACHA20_POLY1305 {
 					return errors.New("unsupported cipher method: ", user.Cipher)
@@ -97,8 +158,12 @@ func (v *ShadowsocksServerConfig) Build() (proto.Message, error) {
 		if account.Password == "" {
 			return nil, errors.New("Shadowsocks password is not specified.")
 		}
-		if account.CipherType == shadowsocks.CipherType_UNKNOWN {
-			return nil, errors.New("unknown cipher method: ", v.Cipher)
+		if isLegacyShadowsocksCipher(account.CipherType) {
+			warnLegacyShadowsocksCipher(v.Cipher)
+		}
+		if account.CipherType < shadowsocks.CipherType_AES_128_GCM ||
+			account.CipherType > shadowsocks.CipherType_XCHACHA20_POLY1305 {
+			return nil, errors.New("unsupported inbound cipher method: ", v.Cipher)
 		}
 		config.Users = append(config.Users, &protocol.User{
 			Email:   v.Email,
@@ -256,6 +321,9 @@ func (v *ShadowsocksClientConfig) Build() (proto.Message, error) {
 		account.CipherType = cipherFromString(server.Cipher)
 		if account.CipherType == shadowsocks.CipherType_UNKNOWN {
 			return nil, errors.New("unknown cipher method: ", server.Cipher)
+		}
+		if isLegacyShadowsocksCipher(account.CipherType) {
+			warnLegacyShadowsocksCipher(server.Cipher)
 		}
 
 		ss := &protocol.ServerEndpoint{

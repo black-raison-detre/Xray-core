@@ -36,21 +36,22 @@ var (
 	}, "protocol", "settings")
 
 	outboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
-		"block":       func() interface{} { return new(BlackholeConfig) },
-		"blackhole":   func() interface{} { return new(BlackholeConfig) },
-		"loopback":    func() interface{} { return new(LoopbackConfig) },
-		"direct":      func() interface{} { return new(FreedomConfig) },
-		"freedom":     func() interface{} { return new(FreedomConfig) },
-		"http":        func() interface{} { return new(HTTPClientConfig) },
-		"shadowsocks": func() interface{} { return new(ShadowsocksClientConfig) },
-		"socks":       func() interface{} { return new(SocksClientConfig) },
-		"vless":       func() interface{} { return new(VLessOutboundConfig) },
-		"vmess":       func() interface{} { return new(VMessOutboundConfig) },
-		"trojan":      func() interface{} { return new(TrojanClientConfig) },
-		"anytls":      func() interface{} { return new(AnyTLSClientConfig) },
-		"hysteria":    func() interface{} { return new(HysteriaClientConfig) },
-		"dns":         func() interface{} { return new(DNSOutboundConfig) },
-		"wireguard":   func() interface{} { return &WireGuardConfig{IsClient: true} },
+		"block":        func() interface{} { return new(BlackholeConfig) },
+		"blackhole":    func() interface{} { return new(BlackholeConfig) },
+		"loopback":     func() interface{} { return new(LoopbackConfig) },
+		"direct":       func() interface{} { return new(FreedomConfig) },
+		"freedom":      func() interface{} { return new(FreedomConfig) },
+		"http":         func() interface{} { return new(HTTPClientConfig) },
+		"shadowsocks":  func() interface{} { return new(ShadowsocksClientConfig) },
+		"shadowsocksr": func() interface{} { return new(ShadowsocksRClientConfig) },
+		"socks":        func() interface{} { return new(SocksClientConfig) },
+		"vless":        func() interface{} { return new(VLessOutboundConfig) },
+		"vmess":        func() interface{} { return new(VMessOutboundConfig) },
+		"trojan":       func() interface{} { return new(TrojanClientConfig) },
+		"anytls":       func() interface{} { return new(AnyTLSClientConfig) },
+		"hysteria":     func() interface{} { return new(HysteriaClientConfig) },
+		"dns":          func() interface{} { return new(DNSOutboundConfig) },
+		"wireguard":    func() interface{} { return &WireGuardConfig{IsClient: true} },
 	}, "protocol", "settings")
 )
 
