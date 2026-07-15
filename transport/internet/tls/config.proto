@@ -38,7 +38,8 @@ message Certificate {
 }
 
 message Config {
-  // Number 1 was assigned and used by an legacy option.
+  // Disable certificate chain and hostname verification.
+  bool allow_insecure = 1;
 
   // List of certificates to be served on server.
   repeated Certificate certificate = 2;

@@ -21,9 +21,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func anyTLSConfigs(serverPort, clientPort net.Port, destination net.Destination, network net.Network) (*core.Config, *core.Config) {
+func anyTLSConfigs(serverPort, clientPort net.Port, destination net.Destination, network net.Network, allowInsecure bool) (*core.Config, *core.Config) {
 	certificate, certificateHash := cert.MustGenerate(nil, cert.CommonName("localhost"))
 	account := serial.ToTypedMessage(&anytls.Account{Password: "anytls-password"})
+	clientTLS := &tls.Config{PinnedPeerCertSha256: [][]byte{certificateHash[:]}}
+	if allowInsecure {
+		clientTLS = &tls.Config{AllowInsecure: true}
+	}
 	serverConfig := &core.Config{
 		Inbound: []*core.InboundHandlerConfig{{
 			ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
@@ -69,15 +73,30 @@ func anyTLSConfigs(serverPort, clientPort net.Port, destination net.Destination,
 			}),
 			SenderSettings: serial.ToTypedMessage(&proxyman.SenderConfig{
 				StreamSettings: &internet.StreamConfig{
-					SecurityType: serial.GetMessageType(&tls.Config{}),
-					SecuritySettings: []*serial.TypedMessage{serial.ToTypedMessage(&tls.Config{
-						PinnedPeerCertSha256: [][]byte{certificateHash[:]},
-					})},
+					SecurityType:     serial.GetMessageType(&tls.Config{}),
+					SecuritySettings: []*serial.TypedMessage{serial.ToTypedMessage(clientTLS)},
 				},
 			}),
 		}},
 	}
 	return serverConfig, clientConfig
+}
+
+func TestAnyTLSAllowInsecure(t *testing.T) {
+	echo := tcp.Server{MsgProcessor: xor}
+	destination, err := echo.Start()
+	common.Must(err)
+	defer echo.Close()
+
+	serverPort, clientPort := tcp.PickPort(), tcp.PickPort()
+	serverConfig, clientConfig := anyTLSConfigs(serverPort, clientPort, destination, net.Network_TCP, true)
+	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
+	common.Must(err)
+	defer CloseAllServers(servers)
+
+	if err := testTCPConn(clientPort, 1024, 10*time.Second)(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAnyTLSTCP(t *testing.T) {
@@ -87,7 +106,7 @@ func TestAnyTLSTCP(t *testing.T) {
 	defer echo.Close()
 
 	serverPort, clientPort := tcp.PickPort(), tcp.PickPort()
-	serverConfig, clientConfig := anyTLSConfigs(serverPort, clientPort, destination, net.Network_TCP)
+	serverConfig, clientConfig := anyTLSConfigs(serverPort, clientPort, destination, net.Network_TCP, false)
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
 	common.Must(err)
 	defer CloseAllServers(servers)
@@ -108,7 +127,7 @@ func TestAnyTLSUoT(t *testing.T) {
 	defer echo.Close()
 
 	serverPort, clientPort := tcp.PickPort(), udp.PickPort()
-	serverConfig, clientConfig := anyTLSConfigs(serverPort, clientPort, destination, net.Network_UDP)
+	serverConfig, clientConfig := anyTLSConfigs(serverPort, clientPort, destination, net.Network_UDP, false)
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
 	common.Must(err)
 	defer CloseAllServers(servers)

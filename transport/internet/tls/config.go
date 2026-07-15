@@ -384,6 +384,7 @@ func (c *Config) GetTLSConfig(opts ...Option) *tls.Config {
 		PinnedPeerCertSha256: c.PinnedPeerCertSha256,
 	}
 	config := &tls.Config{
+		InsecureSkipVerify:     c.AllowInsecure, // #nosec G402 -- explicitly configured by the user
 		Rand:                   randCarrier,
 		ClientSessionCache:     globalSessionCache,
 		RootCAs:                root,
