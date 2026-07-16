@@ -2,10 +2,13 @@ package tun
 
 import (
 	"context"
+	"math"
 	"net/netip"
 	"strings"
 	"syscall"
+	"time"
 
+	observatoryapp "github.com/xtls/xray-core/app/observatory"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	c "github.com/xtls/xray-core/common/ctx"
@@ -15,6 +18,7 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
@@ -26,6 +30,7 @@ import (
 // Handler is managing object that tie together tun interface, ip stack and dispatch connections to the routing
 type Handler struct {
 	ctx             context.Context
+	cancel          context.CancelFunc
 	config          *Config
 	stack           Stack
 	tun             Tun
@@ -35,6 +40,7 @@ type Handler struct {
 	sniffingRequest session.SniffingRequest
 	uplinkCounter   stats.Counter
 	downlinkCounter stats.Counter
+	observatory     extension.Observatory
 }
 
 // ConnectionHandler interface with the only method that stack is going to push new connections to
@@ -58,9 +64,12 @@ func (t *Handler) Init(ctx context.Context, pm policy.Manager, dispatcher routin
 		t.sniffingRequest = content.SniffingRequest
 	}
 
-	t.ctx = core.ToBackgroundDetachedContext(ctx)
+	t.ctx, t.cancel = context.WithCancel(core.ToBackgroundDetachedContext(ctx))
 	t.policyManager = pm
 	t.dispatcher = dispatcher
+	if feature := core.MustFromContext(ctx).GetFeature(extension.ObservatoryType()); feature != nil {
+		t.observatory, _ = feature.(extension.Observatory)
+	}
 
 	if len(t.tag) > 0 && pm.ForSystem().Stats.InboundUplink {
 		statsManager := core.MustFromContext(ctx).GetFeature(stats.ManagerType()).(stats.Manager)
@@ -80,6 +89,39 @@ func (t *Handler) Init(ctx context.Context, pm policy.Manager, dispatcher routin
 	}
 
 	return nil
+}
+
+// icmpEchoDelay returns the cached delay used to emulate an ICMP echo reply.
+// A false result means that probe mode has no alive Observatory result and the
+// request should be left unanswered.
+func (t *Handler) icmpEchoDelay() (time.Duration, bool) {
+	if t.config.GetIcmpMode() != IcmpMode_PROBE {
+		return 0, true
+	}
+	if t.observatory == nil {
+		return 0, false
+	}
+
+	report, err := t.observatory.GetObservation(t.ctx)
+	if err != nil {
+		errors.LogInfoInner(t.ctx, err, "[tun][icmp] failed to read Observatory result")
+		return 0, false
+	}
+	result, ok := report.(*observatoryapp.ObservationResult)
+	if !ok {
+		return 0, false
+	}
+
+	leastDelay := int64(math.MaxInt64)
+	for _, status := range result.Status {
+		if status != nil && status.Alive && status.Delay >= 0 && status.Delay < leastDelay {
+			leastDelay = status.Delay
+		}
+	}
+	if leastDelay == math.MaxInt64 || leastDelay > math.MaxInt64/int64(time.Millisecond) {
+		return 0, false
+	}
+	return time.Duration(leastDelay) * time.Millisecond, true
 }
 
 func (t *Handler) Start() error {
@@ -214,6 +256,9 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
 
 // Close implements common.Closable.
 func (t *Handler) Close() error {
+	if t.cancel != nil {
+		t.cancel()
+	}
 	return errors.Combine(common.CloseIfExists(t.stack), common.CloseIfExists(t.tun))
 }
 

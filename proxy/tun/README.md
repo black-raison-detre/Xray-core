@@ -32,7 +32,8 @@ Here is simple Xray config snippet to enable the inbound:
       "protocol": "tun",
       "settings": {
         "name": "xray0",
-        "MTU": 1492
+        "MTU": 1492,
+        "icmpMode": "fake"
       }
     }
   ],
@@ -44,10 +45,15 @@ Here is simple Xray config snippet to enable the inbound:
 - TCP and UDP
 - ICMP Echo (ping)
 
+`icmpMode` controls ICMP Echo reply timing:
+
+- `fake` is the default and replies immediately from the local TUN stack.
+- `probe` delays the local reply by the lowest alive cached Observatory delay. It does not start a probe for each ICMP request. When Observatory is unavailable or has no alive cached result, the request is left unanswered.
+
 ## LIMITATION
 
 - Only ICMP Echo request/reply is supported; other ICMP message types are ignored
-- ICMP Echo replies are generated locally by the TUN stack; they do not validate real remote ICMP reachability
+- ICMP Echo replies are generated locally by the TUN stack in both modes; they do not validate real remote ICMP reachability. `probe` represents cached proxy-path application latency rather than latency to the ICMP destination
 - Connections are established to any host, as connection success is only a mark of successful accepting packet for proxying. Hosts that are not accepting connections or don't even exists, will look like they opened a connection (SYN-ACK), and never send back a single byte, closing connection (RST) after some time. This is the side effect of the whole process actually being a proxy, and not real network layer 3 vpn
 
 ## CONSIDERATIONS

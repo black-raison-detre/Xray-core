@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xtls/xray-core/app/observatory"
 	"github.com/xtls/xray-core/common/buf"
 	xnet "github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/transport"
+	"google.golang.org/protobuf/proto"
 )
 
 type testCounter struct {
@@ -76,6 +79,27 @@ type testDispatcher struct {
 	readBytes    int32
 }
 
+type testObservatory struct {
+	report proto.Message
+	err    error
+}
+
+func (o *testObservatory) Type() interface{} {
+	return extension.ObservatoryType()
+}
+
+func (o *testObservatory) Start() error {
+	return nil
+}
+
+func (o *testObservatory) Close() error {
+	return nil
+}
+
+func (o *testObservatory) GetObservation(context.Context) (proto.Message, error) {
+	return o.report, o.err
+}
+
 func (d *testDispatcher) Type() interface{} {
 	return routing.DispatcherType()
 }
@@ -129,5 +153,57 @@ func TestHandlerCountsTunConnectionTraffic(t *testing.T) {
 	}
 	if got := conn.writer.String(); got != "downlink" {
 		t.Fatalf("connection write mismatch: got %q, want %q", got, "downlink")
+	}
+}
+
+func TestHandlerICMPEchoDelay(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        IcmpMode
+		observatory extension.Observatory
+		wantDelay   time.Duration
+		wantOK      bool
+	}{
+		{
+			name:   "fake is immediate without observatory",
+			mode:   IcmpMode_FAKE,
+			wantOK: true,
+		},
+		{
+			name: "probe requires observatory",
+			mode: IcmpMode_PROBE,
+		},
+		{
+			name: "probe selects lowest alive cached delay",
+			mode: IcmpMode_PROBE,
+			observatory: &testObservatory{report: &observatory.ObservationResult{Status: []*observatory.OutboundStatus{
+				{OutboundTag: "dead", Alive: false, Delay: 1},
+				{OutboundTag: "slow", Alive: true, Delay: 85},
+				{OutboundTag: "fast", Alive: true, Delay: 42},
+			}}},
+			wantDelay: 42 * time.Millisecond,
+			wantOK:    true,
+		},
+		{
+			name: "probe drops when no alive result exists",
+			mode: IcmpMode_PROBE,
+			observatory: &testObservatory{report: &observatory.ObservationResult{Status: []*observatory.OutboundStatus{
+				{OutboundTag: "dead", Alive: false, Delay: 99999999},
+			}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{
+				ctx:         context.Background(),
+				config:      &Config{IcmpMode: test.mode},
+				observatory: test.observatory,
+			}
+			gotDelay, gotOK := handler.icmpEchoDelay()
+			if gotDelay != test.wantDelay || gotOK != test.wantOK {
+				t.Fatalf("icmpEchoDelay() = (%s, %v), want (%s, %v)", gotDelay, gotOK, test.wantDelay, test.wantOK)
+			}
+		})
 	}
 }

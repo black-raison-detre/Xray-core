@@ -1,6 +1,24 @@
 package observatory
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestObserverGetObservationReturnsSnapshot(t *testing.T) {
+	observer := &Observer{status: []*OutboundStatus{{OutboundTag: "proxy", Alive: true, Delay: 42}}}
+
+	report, err := observer.GetObservation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer.status[0].Delay = 99
+
+	got := report.(*ObservationResult).Status[0].Delay
+	if got != 42 {
+		t.Fatalf("snapshot delay = %d, want 42", got)
+	}
+}
 
 func TestObserverUpdateStatusPrunesStaleOutbounds(t *testing.T) {
 	observer := &Observer{

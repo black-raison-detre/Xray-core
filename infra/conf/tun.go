@@ -1,6 +1,9 @@
 package conf
 
 import (
+	"strings"
+
+	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/proxy/tun"
 	"google.golang.org/protobuf/proto"
 )
@@ -13,6 +16,7 @@ type TunConfig struct {
 	UserLevel              uint32   `json:"userLevel"`
 	AutoSystemRoutingTable []string `json:"autoSystemRoutingTable"`
 	AutoOutboundsInterface *string  `json:"autoOutboundsInterface"`
+	ICMPMode               string   `json:"icmpMode"`
 }
 
 func (v *TunConfig) Build() (proto.Message, error) {
@@ -29,6 +33,15 @@ func (v *TunConfig) Build() (proto.Message, error) {
 	}
 	if len(v.AutoSystemRoutingTable) > 0 && v.AutoOutboundsInterface == nil {
 		config.AutoOutboundsInterface = "auto"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(v.ICMPMode)) {
+	case "", "fake":
+		config.IcmpMode = tun.IcmpMode_FAKE
+	case "probe":
+		config.IcmpMode = tun.IcmpMode_PROBE
+	default:
+		return nil, errors.New("unknown TUN ICMP mode: ", v.ICMPMode)
 	}
 
 	if config.Name == "" {

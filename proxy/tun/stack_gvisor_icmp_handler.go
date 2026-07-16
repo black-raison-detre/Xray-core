@@ -1,6 +1,8 @@
 package tun
 
 import (
+	"time"
+
 	"github.com/xtls/xray-core/common/errors"
 	tunicmp "github.com/xtls/xray-core/proxy/tun/icmp"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -36,10 +38,30 @@ func (t *stackGVisor) handleICMPEchoPacket(netProto tcpip.NetworkProtocolNumber,
 		return true
 	}
 
-	errors.LogDebug(t.ctx, "[tun][icmp] ", tunicmp.ProtocolLabel(netProto), " local echo reply ", dstIP, " -> ", srcIP, " id=", ident, " seq=", sequence)
-	if err := t.writeRawICMPPacket(netProto, reply, dstIP, srcIP); err != nil {
-		errors.LogInfoInner(t.ctx, err, "[tun] failed to write local icmp echo reply")
+	delay, available := t.handler.icmpEchoDelay()
+	if !available {
+		errors.LogDebug(t.ctx, "[tun][icmp] ", tunicmp.ProtocolLabel(netProto), " probe result unavailable; dropping echo request ", srcIP, " -> ", dstIP, " id=", ident, " seq=", sequence)
+		return true
 	}
+
+	writeReply := func() {
+		errors.LogDebug(t.ctx, "[tun][icmp] ", tunicmp.ProtocolLabel(netProto), " echo reply ", dstIP, " -> ", srcIP, " delay=", delay, " id=", ident, " seq=", sequence)
+		if err := t.writeRawICMPPacket(netProto, reply, dstIP, srcIP); err != nil {
+			errors.LogInfoInner(t.ctx, err, "[tun] failed to write local icmp echo reply")
+		}
+	}
+	if delay <= 0 {
+		writeReply()
+		return true
+	}
+	time.AfterFunc(delay, func() {
+		select {
+		case <-t.handler.ctx.Done():
+			return
+		default:
+			writeReply()
+		}
+	})
 
 	return true
 }
