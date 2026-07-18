@@ -48,7 +48,7 @@ Here is simple Xray config snippet to enable the inbound:
 `icmpMode` controls ICMP Echo reply timing:
 
 - `fake` is the default and replies immediately from the local TUN stack.
-- `probe` delays the local reply by the lowest alive cached Observatory delay. It does not start a probe for each ICMP request. When Observatory is unavailable or has no alive cached result, the request is left unanswered.
+- `probe` delays the local reply by the lowest alive cached Observatory delay. It does not start a probe for each ICMP request. When Observatory is unavailable, has no alive cached result, or reports a delay above 30 seconds, the request is left unanswered. At most 256 delayed replies are retained at once; excess requests are dropped.
 
 ## LIMITATION
 

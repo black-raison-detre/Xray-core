@@ -191,6 +191,13 @@ func TestHandlerICMPEchoDelay(t *testing.T) {
 				{OutboundTag: "dead", Alive: false, Delay: 99999999},
 			}}},
 		},
+		{
+			name: "probe drops excessive cached delay",
+			mode: IcmpMode_PROBE,
+			observatory: &testObservatory{report: &observatory.ObservationResult{Status: []*observatory.OutboundStatus{
+				{OutboundTag: "too-slow", Alive: true, Delay: maxICMPProbeDelay.Milliseconds() + 1},
+			}}},
+		},
 	}
 
 	for _, test := range tests {
@@ -205,5 +212,72 @@ func TestHandlerICMPEchoDelay(t *testing.T) {
 				t.Fatalf("icmpEchoDelay() = (%s, %v), want (%s, %v)", gotDelay, gotOK, test.wantDelay, test.wantOK)
 			}
 		})
+	}
+}
+
+func TestHandlerICMPEchoReplySchedulerBoundsPending(t *testing.T) {
+	handler := &Handler{}
+	for range maxPendingICMPEchoReply {
+		if !handler.scheduleICMPEchoReply(maxICMPProbeDelay, func() {}) {
+			t.Fatal("expected delayed reply to fit within pending limit")
+		}
+	}
+	if handler.scheduleICMPEchoReply(maxICMPProbeDelay, func() {}) {
+		t.Fatal("expected delayed reply above pending limit to be rejected")
+	}
+
+	handler.stopICMPEchoReplies()
+	if got := len(handler.icmpTimers); got != 0 {
+		t.Fatalf("expected timer set to be empty after shutdown, got %d", got)
+	}
+	if handler.icmpReplyCount != 0 {
+		t.Fatalf("expected reply count to be zero after shutdown, got %d", handler.icmpReplyCount)
+	}
+}
+
+func TestHandlerICMPEchoReplySchedulerStopsAndDrains(t *testing.T) {
+	handler := &Handler{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	if !handler.scheduleICMPEchoReply(time.Millisecond, func() {
+		close(started)
+		<-release
+	}) {
+		t.Fatal("expected delayed reply to be scheduled")
+	}
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled reply did not start")
+	}
+	for range maxPendingICMPEchoReply - 1 {
+		if !handler.scheduleICMPEchoReply(maxICMPProbeDelay, func() {}) {
+			t.Fatal("expected pending reply to fit beside active callback")
+		}
+	}
+	if handler.scheduleICMPEchoReply(maxICMPProbeDelay, func() {}) {
+		t.Fatal("expected active and pending replies to share the same limit")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		handler.stopICMPEchoReplies()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("shutdown returned while a reply callback was active")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not return after reply callback finished")
+	}
+	if handler.scheduleICMPEchoReply(time.Millisecond, func() {}) {
+		t.Fatal("expected scheduler to reject replies after shutdown")
 	}
 }

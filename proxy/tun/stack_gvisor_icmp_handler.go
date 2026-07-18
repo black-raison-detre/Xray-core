@@ -1,8 +1,6 @@
 package tun
 
 import (
-	"time"
-
 	"github.com/xtls/xray-core/common/errors"
 	tunicmp "github.com/xtls/xray-core/proxy/tun/icmp"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -54,14 +52,9 @@ func (t *stackGVisor) handleICMPEchoPacket(netProto tcpip.NetworkProtocolNumber,
 		writeReply()
 		return true
 	}
-	time.AfterFunc(delay, func() {
-		select {
-		case <-t.handler.ctx.Done():
-			return
-		default:
-			writeReply()
-		}
-	})
+	if !t.handler.scheduleICMPEchoReply(delay, writeReply) {
+		errors.LogDebug(t.ctx, "[tun][icmp] delayed reply queue unavailable; dropping echo request ", srcIP, " -> ", dstIP, " id=", ident, " seq=", sequence)
+	}
 
 	return true
 }

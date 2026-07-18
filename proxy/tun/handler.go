@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/netip"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,11 @@ import (
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
+const (
+	maxICMPProbeDelay       = 30 * time.Second
+	maxPendingICMPEchoReply = 256
+)
+
 // Handler is managing object that tie together tun interface, ip stack and dispatch connections to the routing
 type Handler struct {
 	ctx             context.Context
@@ -41,6 +47,13 @@ type Handler struct {
 	uplinkCounter   stats.Counter
 	downlinkCounter stats.Counter
 	observatory     extension.Observatory
+
+	icmpTimerAccess sync.Mutex
+	icmpTimers      map[uint64]*time.Timer
+	icmpNextTimerID uint64
+	icmpReplyCount  int
+	icmpClosing     bool
+	icmpReplyWG     sync.WaitGroup
 }
 
 // ConnectionHandler interface with the only method that stack is going to push new connections to
@@ -92,7 +105,7 @@ func (t *Handler) Init(ctx context.Context, pm policy.Manager, dispatcher routin
 }
 
 // icmpEchoDelay returns the cached delay used to emulate an ICMP echo reply.
-// A false result means that probe mode has no alive Observatory result and the
+// A false result means that probe mode has no usable Observatory result and the
 // request should be left unanswered.
 func (t *Handler) icmpEchoDelay() (time.Duration, bool) {
 	if t.config.GetIcmpMode() != IcmpMode_PROBE {
@@ -118,10 +131,68 @@ func (t *Handler) icmpEchoDelay() (time.Duration, bool) {
 			leastDelay = status.Delay
 		}
 	}
-	if leastDelay == math.MaxInt64 || leastDelay > math.MaxInt64/int64(time.Millisecond) {
+	if leastDelay == math.MaxInt64 || leastDelay > maxICMPProbeDelay.Milliseconds() {
 		return 0, false
 	}
 	return time.Duration(leastDelay) * time.Millisecond, true
+}
+
+// scheduleICMPEchoReply bounds and tracks delayed replies so ICMP traffic cannot
+// create an unbounded number of timers or outlive stack shutdown.
+func (t *Handler) scheduleICMPEchoReply(delay time.Duration, reply func()) bool {
+	if delay <= 0 || delay > maxICMPProbeDelay || reply == nil {
+		return false
+	}
+
+	t.icmpTimerAccess.Lock()
+	defer t.icmpTimerAccess.Unlock()
+	if t.icmpClosing || t.icmpReplyCount >= maxPendingICMPEchoReply {
+		return false
+	}
+	if t.icmpTimers == nil {
+		t.icmpTimers = make(map[uint64]*time.Timer)
+	}
+
+	t.icmpNextTimerID++
+	timerID := t.icmpNextTimerID
+	t.icmpReplyCount++
+	t.icmpTimers[timerID] = time.AfterFunc(delay, func() {
+		t.icmpTimerAccess.Lock()
+		delete(t.icmpTimers, timerID)
+		if t.icmpClosing {
+			t.icmpReplyCount--
+			t.icmpTimerAccess.Unlock()
+			return
+		}
+		t.icmpReplyWG.Add(1)
+		t.icmpTimerAccess.Unlock()
+
+		defer func() {
+			t.icmpTimerAccess.Lock()
+			t.icmpReplyCount--
+			t.icmpTimerAccess.Unlock()
+			t.icmpReplyWG.Done()
+		}()
+		reply()
+	})
+
+	return true
+}
+
+func (t *Handler) stopICMPEchoReplies() {
+	t.icmpTimerAccess.Lock()
+	t.icmpClosing = true
+	for timerID, timer := range t.icmpTimers {
+		if timer.Stop() {
+			t.icmpReplyCount--
+		}
+		delete(t.icmpTimers, timerID)
+	}
+	t.icmpTimerAccess.Unlock()
+
+	// A callback that acquired icmpTimerAccess before shutdown may already be
+	// writing. Keep the stack alive until every such callback returns.
+	t.icmpReplyWG.Wait()
 }
 
 func (t *Handler) Start() error {
@@ -256,6 +327,7 @@ func (t *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
 
 // Close implements common.Closable.
 func (t *Handler) Close() error {
+	t.stopICMPEchoReplies()
 	if t.cancel != nil {
 		t.cancel()
 	}
