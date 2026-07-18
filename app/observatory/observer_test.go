@@ -2,6 +2,7 @@ package observatory
 
 import (
 	"context"
+	"sync"
 	"testing"
 )
 
@@ -18,6 +19,31 @@ func TestObserverGetObservationReturnsSnapshot(t *testing.T) {
 	if got != 42 {
 		t.Fatalf("snapshot delay = %d, want 42", got)
 	}
+}
+
+func TestObserverGetObservationDuringUpdates(t *testing.T) {
+	observer := &Observer{status: []*OutboundStatus{{OutboundTag: "proxy", Alive: true}}}
+
+	var updates sync.WaitGroup
+	updates.Add(1)
+	go func() {
+		defer updates.Done()
+		for delay := range int64(1000) {
+			observer.updateStatusForResult("proxy", &ProbeResult{Alive: true, Delay: delay})
+		}
+	}()
+
+	for range 1000 {
+		report, err := observer.GetObservation(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		statuses := report.(*ObservationResult).Status
+		if len(statuses) != 1 || statuses[0] == nil || statuses[0].OutboundTag != "proxy" {
+			t.Fatalf("unexpected Observatory snapshot: %+v", statuses)
+		}
+	}
+	updates.Wait()
 }
 
 func TestObserverUpdateStatusPrunesStaleOutbounds(t *testing.T) {
