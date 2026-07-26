@@ -77,12 +77,17 @@ func (t *Handler) Init(ctx context.Context, pm policy.Manager, dispatcher routin
 		t.sniffingRequest = content.SniffingRequest
 	}
 
+	if t.config.GetIcmpMode() == IcmpMode_PROBE {
+		observatory, ok := core.MustFromContext(ctx).GetFeature(extension.ObservatoryType()).(extension.Observatory)
+		if !ok {
+			return errors.New("TUN ICMP probe mode requires Observatory")
+		}
+		t.observatory = observatory
+	}
+
 	t.ctx, t.cancel = context.WithCancel(core.ToBackgroundDetachedContext(ctx))
 	t.policyManager = pm
 	t.dispatcher = dispatcher
-	if feature := core.MustFromContext(ctx).GetFeature(extension.ObservatoryType()); feature != nil {
-		t.observatory, _ = feature.(extension.Observatory)
-	}
 
 	if len(t.tag) > 0 && pm.ForSystem().Stats.InboundUplink {
 		statsManager := core.MustFromContext(ctx).GetFeature(stats.ManagerType()).(stats.Manager)

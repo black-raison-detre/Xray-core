@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/app/observatory"
 	"github.com/xtls/xray-core/common/buf"
 	xnet "github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/transport"
@@ -210,6 +212,70 @@ func TestHandlerICMPEchoDelay(t *testing.T) {
 			gotDelay, gotOK := handler.icmpEchoDelay()
 			if gotDelay != test.wantDelay || gotOK != test.wantOK {
 				t.Fatalf("icmpEchoDelay() = (%s, %v), want (%s, %v)", gotDelay, gotOK, test.wantDelay, test.wantOK)
+			}
+		})
+	}
+}
+
+func TestHandlerICMPModeObservatoryDependency(t *testing.T) {
+	tests := []struct {
+		name            string
+		mode            IcmpMode
+		withObservatory bool
+		wantError       bool
+	}{
+		{
+			name: "fake without observatory",
+			mode: IcmpMode_FAKE,
+		},
+		{
+			name:      "probe without observatory",
+			mode:      IcmpMode_PROBE,
+			wantError: true,
+		},
+		{
+			name:            "probe with observatory",
+			mode:            IcmpMode_PROBE,
+			withObservatory: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			instance, err := core.New(&core.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer instance.Close()
+
+			if err := instance.AddFeature(&testDispatcher{}); err != nil {
+				t.Fatal(err)
+			}
+			var expectedObservatory extension.Observatory
+			if test.withObservatory {
+				expectedObservatory = &testObservatory{report: &observatory.ObservationResult{}}
+				if err := instance.AddFeature(expectedObservatory); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			rawHandler, err := core.CreateObject(instance, &Config{IcmpMode: test.mode})
+			if test.wantError {
+				if err == nil || !strings.Contains(err.Error(), "requires Observatory") {
+					t.Fatalf("CreateObject() error = %v, want missing Observatory error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, ok := rawHandler.(*Handler)
+			if !ok {
+				t.Fatalf("CreateObject() returned %T, want *Handler", rawHandler)
+			}
+			defer handler.Close()
+			if handler.observatory != expectedObservatory {
+				t.Fatalf("Handler observatory = %T, want %T", handler.observatory, expectedObservatory)
 			}
 		})
 	}

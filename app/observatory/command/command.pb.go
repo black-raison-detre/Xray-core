@@ -22,6 +22,110 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type CapabilityProbeKind int32
+
+const (
+	CapabilityProbeKind_CAPABILITY_PROBE_KIND_UNSPECIFIED CapabilityProbeKind = 0
+	CapabilityProbeKind_CAPABILITY_PROBE_KIND_IPV4_HTTP   CapabilityProbeKind = 1
+	CapabilityProbeKind_CAPABILITY_PROBE_KIND_IPV6_HTTP   CapabilityProbeKind = 2
+	CapabilityProbeKind_CAPABILITY_PROBE_KIND_UDP_DNS     CapabilityProbeKind = 3
+)
+
+// Enum value maps for CapabilityProbeKind.
+var (
+	CapabilityProbeKind_name = map[int32]string{
+		0: "CAPABILITY_PROBE_KIND_UNSPECIFIED",
+		1: "CAPABILITY_PROBE_KIND_IPV4_HTTP",
+		2: "CAPABILITY_PROBE_KIND_IPV6_HTTP",
+		3: "CAPABILITY_PROBE_KIND_UDP_DNS",
+	}
+	CapabilityProbeKind_value = map[string]int32{
+		"CAPABILITY_PROBE_KIND_UNSPECIFIED": 0,
+		"CAPABILITY_PROBE_KIND_IPV4_HTTP":   1,
+		"CAPABILITY_PROBE_KIND_IPV6_HTTP":   2,
+		"CAPABILITY_PROBE_KIND_UDP_DNS":     3,
+	}
+)
+
+func (x CapabilityProbeKind) Enum() *CapabilityProbeKind {
+	p := new(CapabilityProbeKind)
+	*p = x
+	return p
+}
+
+func (x CapabilityProbeKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CapabilityProbeKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_app_observatory_command_command_proto_enumTypes[0].Descriptor()
+}
+
+func (CapabilityProbeKind) Type() protoreflect.EnumType {
+	return &file_app_observatory_command_command_proto_enumTypes[0]
+}
+
+func (x CapabilityProbeKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CapabilityProbeKind.Descriptor instead.
+func (CapabilityProbeKind) EnumDescriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{0}
+}
+
+type CapabilityProbeStatus int32
+
+const (
+	CapabilityProbeStatus_CAPABILITY_PROBE_STATUS_UNSPECIFIED CapabilityProbeStatus = 0
+	CapabilityProbeStatus_CAPABILITY_PROBE_STATUS_REACHABLE   CapabilityProbeStatus = 1
+	CapabilityProbeStatus_CAPABILITY_PROBE_STATUS_FAILED      CapabilityProbeStatus = 2
+	CapabilityProbeStatus_CAPABILITY_PROBE_STATUS_UNAVAILABLE CapabilityProbeStatus = 3
+)
+
+// Enum value maps for CapabilityProbeStatus.
+var (
+	CapabilityProbeStatus_name = map[int32]string{
+		0: "CAPABILITY_PROBE_STATUS_UNSPECIFIED",
+		1: "CAPABILITY_PROBE_STATUS_REACHABLE",
+		2: "CAPABILITY_PROBE_STATUS_FAILED",
+		3: "CAPABILITY_PROBE_STATUS_UNAVAILABLE",
+	}
+	CapabilityProbeStatus_value = map[string]int32{
+		"CAPABILITY_PROBE_STATUS_UNSPECIFIED": 0,
+		"CAPABILITY_PROBE_STATUS_REACHABLE":   1,
+		"CAPABILITY_PROBE_STATUS_FAILED":      2,
+		"CAPABILITY_PROBE_STATUS_UNAVAILABLE": 3,
+	}
+)
+
+func (x CapabilityProbeStatus) Enum() *CapabilityProbeStatus {
+	p := new(CapabilityProbeStatus)
+	*p = x
+	return p
+}
+
+func (x CapabilityProbeStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CapabilityProbeStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_app_observatory_command_command_proto_enumTypes[1].Descriptor()
+}
+
+func (CapabilityProbeStatus) Type() protoreflect.EnumType {
+	return &file_app_observatory_command_command_proto_enumTypes[1]
+}
+
+func (x CapabilityProbeStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CapabilityProbeStatus.Descriptor instead.
+func (CapabilityProbeStatus) EnumDescriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{1}
+}
+
 type GetOutboundStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -102,6 +206,250 @@ func (x *GetOutboundStatusResponse) GetStatus() *observatory.ObservationResult {
 	return nil
 }
 
+type TestOutboundCapabilitiesRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	OutboundTag         string                 `protobuf:"bytes,1,opt,name=outbound_tag,json=outboundTag,proto3" json:"outbound_tag,omitempty"`
+	Kinds               []CapabilityProbeKind  `protobuf:"varint,2,rep,packed,name=kinds,proto3,enum=xray.core.app.observatory.command.CapabilityProbeKind" json:"kinds,omitempty"`
+	HttpUrl             string                 `protobuf:"bytes,3,opt,name=http_url,json=httpUrl,proto3" json:"http_url,omitempty"`
+	UdpQueryDomain      string                 `protobuf:"bytes,4,opt,name=udp_query_domain,json=udpQueryDomain,proto3" json:"udp_query_domain,omitempty"`
+	UdpDnsServer        string                 `protobuf:"bytes,5,opt,name=udp_dns_server,json=udpDnsServer,proto3" json:"udp_dns_server,omitempty"`
+	TimeoutMilliseconds uint32                 `protobuf:"varint,6,opt,name=timeout_milliseconds,json=timeoutMilliseconds,proto3" json:"timeout_milliseconds,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *TestOutboundCapabilitiesRequest) Reset() {
+	*x = TestOutboundCapabilitiesRequest{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestOutboundCapabilitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestOutboundCapabilitiesRequest) ProtoMessage() {}
+
+func (x *TestOutboundCapabilitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestOutboundCapabilitiesRequest.ProtoReflect.Descriptor instead.
+func (*TestOutboundCapabilitiesRequest) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetOutboundTag() string {
+	if x != nil {
+		return x.OutboundTag
+	}
+	return ""
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetKinds() []CapabilityProbeKind {
+	if x != nil {
+		return x.Kinds
+	}
+	return nil
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetHttpUrl() string {
+	if x != nil {
+		return x.HttpUrl
+	}
+	return ""
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetUdpQueryDomain() string {
+	if x != nil {
+		return x.UdpQueryDomain
+	}
+	return ""
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetUdpDnsServer() string {
+	if x != nil {
+		return x.UdpDnsServer
+	}
+	return ""
+}
+
+func (x *TestOutboundCapabilitiesRequest) GetTimeoutMilliseconds() uint32 {
+	if x != nil {
+		return x.TimeoutMilliseconds
+	}
+	return 0
+}
+
+type CapabilityProbeResult struct {
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	Kind                       CapabilityProbeKind    `protobuf:"varint,1,opt,name=kind,proto3,enum=xray.core.app.observatory.command.CapabilityProbeKind" json:"kind,omitempty"`
+	Status                     CapabilityProbeStatus  `protobuf:"varint,2,opt,name=status,proto3,enum=xray.core.app.observatory.command.CapabilityProbeStatus" json:"status,omitempty"`
+	LatencyMilliseconds        int64                  `protobuf:"varint,3,opt,name=latency_milliseconds,json=latencyMilliseconds,proto3" json:"latency_milliseconds,omitempty"`
+	ResolutionTimeMilliseconds int64                  `protobuf:"varint,4,opt,name=resolution_time_milliseconds,json=resolutionTimeMilliseconds,proto3" json:"resolution_time_milliseconds,omitempty"`
+	Address                    string                 `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`
+	HttpStatus                 uint32                 `protobuf:"varint,6,opt,name=http_status,json=httpStatus,proto3" json:"http_status,omitempty"`
+	DnsRcode                   uint32                 `protobuf:"varint,7,opt,name=dns_rcode,json=dnsRcode,proto3" json:"dns_rcode,omitempty"`
+	DnsAnswerCount             uint32                 `protobuf:"varint,8,opt,name=dns_answer_count,json=dnsAnswerCount,proto3" json:"dns_answer_count,omitempty"`
+	FailureStage               string                 `protobuf:"bytes,9,opt,name=failure_stage,json=failureStage,proto3" json:"failure_stage,omitempty"`
+	Error                      string                 `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *CapabilityProbeResult) Reset() {
+	*x = CapabilityProbeResult{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityProbeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityProbeResult) ProtoMessage() {}
+
+func (x *CapabilityProbeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityProbeResult.ProtoReflect.Descriptor instead.
+func (*CapabilityProbeResult) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CapabilityProbeResult) GetKind() CapabilityProbeKind {
+	if x != nil {
+		return x.Kind
+	}
+	return CapabilityProbeKind_CAPABILITY_PROBE_KIND_UNSPECIFIED
+}
+
+func (x *CapabilityProbeResult) GetStatus() CapabilityProbeStatus {
+	if x != nil {
+		return x.Status
+	}
+	return CapabilityProbeStatus_CAPABILITY_PROBE_STATUS_UNSPECIFIED
+}
+
+func (x *CapabilityProbeResult) GetLatencyMilliseconds() int64 {
+	if x != nil {
+		return x.LatencyMilliseconds
+	}
+	return 0
+}
+
+func (x *CapabilityProbeResult) GetResolutionTimeMilliseconds() int64 {
+	if x != nil {
+		return x.ResolutionTimeMilliseconds
+	}
+	return 0
+}
+
+func (x *CapabilityProbeResult) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *CapabilityProbeResult) GetHttpStatus() uint32 {
+	if x != nil {
+		return x.HttpStatus
+	}
+	return 0
+}
+
+func (x *CapabilityProbeResult) GetDnsRcode() uint32 {
+	if x != nil {
+		return x.DnsRcode
+	}
+	return 0
+}
+
+func (x *CapabilityProbeResult) GetDnsAnswerCount() uint32 {
+	if x != nil {
+		return x.DnsAnswerCount
+	}
+	return 0
+}
+
+func (x *CapabilityProbeResult) GetFailureStage() string {
+	if x != nil {
+		return x.FailureStage
+	}
+	return ""
+}
+
+func (x *CapabilityProbeResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type TestOutboundCapabilitiesResponse struct {
+	state         protoimpl.MessageState   `protogen:"open.v1"`
+	Results       []*CapabilityProbeResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestOutboundCapabilitiesResponse) Reset() {
+	*x = TestOutboundCapabilitiesResponse{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestOutboundCapabilitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestOutboundCapabilitiesResponse) ProtoMessage() {}
+
+func (x *TestOutboundCapabilitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestOutboundCapabilitiesResponse.ProtoReflect.Descriptor instead.
+func (*TestOutboundCapabilitiesResponse) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TestOutboundCapabilitiesResponse) GetResults() []*CapabilityProbeResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
 type Config struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -110,7 +458,7 @@ type Config struct {
 
 func (x *Config) Reset() {
 	*x = Config{}
-	mi := &file_app_observatory_command_command_proto_msgTypes[2]
+	mi := &file_app_observatory_command_command_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -122,7 +470,7 @@ func (x *Config) String() string {
 func (*Config) ProtoMessage() {}
 
 func (x *Config) ProtoReflect() protoreflect.Message {
-	mi := &file_app_observatory_command_command_proto_msgTypes[2]
+	mi := &file_app_observatory_command_command_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -135,7 +483,7 @@ func (x *Config) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config.ProtoReflect.Descriptor instead.
 func (*Config) Descriptor() ([]byte, []int) {
-	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{2}
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{5}
 }
 
 var File_app_observatory_command_command_proto protoreflect.FileDescriptor
@@ -145,10 +493,43 @@ const file_app_observatory_command_command_proto_rawDesc = "" +
 	"%app/observatory/command/command.proto\x12!xray.core.app.observatory.command\x1a\x1capp/observatory/config.proto\"\x1a\n" +
 	"\x18GetOutboundStatusRequest\"a\n" +
 	"\x19GetOutboundStatusResponse\x12D\n" +
-	"\x06status\x18\x01 \x01(\v2,.xray.core.app.observatory.ObservationResultR\x06status\"\b\n" +
-	"\x06Config2\xa7\x01\n" +
+	"\x06status\x18\x01 \x01(\v2,.xray.core.app.observatory.ObservationResultR\x06status\"\xb0\x02\n" +
+	"\x1fTestOutboundCapabilitiesRequest\x12!\n" +
+	"\foutbound_tag\x18\x01 \x01(\tR\voutboundTag\x12L\n" +
+	"\x05kinds\x18\x02 \x03(\x0e26.xray.core.app.observatory.command.CapabilityProbeKindR\x05kinds\x12\x19\n" +
+	"\bhttp_url\x18\x03 \x01(\tR\ahttpUrl\x12(\n" +
+	"\x10udp_query_domain\x18\x04 \x01(\tR\x0eudpQueryDomain\x12$\n" +
+	"\x0eudp_dns_server\x18\x05 \x01(\tR\fudpDnsServer\x121\n" +
+	"\x14timeout_milliseconds\x18\x06 \x01(\rR\x13timeoutMilliseconds\"\xe7\x03\n" +
+	"\x15CapabilityProbeResult\x12J\n" +
+	"\x04kind\x18\x01 \x01(\x0e26.xray.core.app.observatory.command.CapabilityProbeKindR\x04kind\x12P\n" +
+	"\x06status\x18\x02 \x01(\x0e28.xray.core.app.observatory.command.CapabilityProbeStatusR\x06status\x121\n" +
+	"\x14latency_milliseconds\x18\x03 \x01(\x03R\x13latencyMilliseconds\x12@\n" +
+	"\x1cresolution_time_milliseconds\x18\x04 \x01(\x03R\x1aresolutionTimeMilliseconds\x12\x18\n" +
+	"\aaddress\x18\x05 \x01(\tR\aaddress\x12\x1f\n" +
+	"\vhttp_status\x18\x06 \x01(\rR\n" +
+	"httpStatus\x12\x1b\n" +
+	"\tdns_rcode\x18\a \x01(\rR\bdnsRcode\x12(\n" +
+	"\x10dns_answer_count\x18\b \x01(\rR\x0ednsAnswerCount\x12#\n" +
+	"\rfailure_stage\x18\t \x01(\tR\ffailureStage\x12\x14\n" +
+	"\x05error\x18\n" +
+	" \x01(\tR\x05error\"v\n" +
+	" TestOutboundCapabilitiesResponse\x12R\n" +
+	"\aresults\x18\x01 \x03(\v28.xray.core.app.observatory.command.CapabilityProbeResultR\aresults\"\b\n" +
+	"\x06Config*\xa9\x01\n" +
+	"\x13CapabilityProbeKind\x12%\n" +
+	"!CAPABILITY_PROBE_KIND_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fCAPABILITY_PROBE_KIND_IPV4_HTTP\x10\x01\x12#\n" +
+	"\x1fCAPABILITY_PROBE_KIND_IPV6_HTTP\x10\x02\x12!\n" +
+	"\x1dCAPABILITY_PROBE_KIND_UDP_DNS\x10\x03*\xb4\x01\n" +
+	"\x15CapabilityProbeStatus\x12'\n" +
+	"#CAPABILITY_PROBE_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
+	"!CAPABILITY_PROBE_STATUS_REACHABLE\x10\x01\x12\"\n" +
+	"\x1eCAPABILITY_PROBE_STATUS_FAILED\x10\x02\x12'\n" +
+	"#CAPABILITY_PROBE_STATUS_UNAVAILABLE\x10\x032\xcf\x02\n" +
 	"\x12ObservatoryService\x12\x90\x01\n" +
-	"\x11GetOutboundStatus\x12;.xray.core.app.observatory.command.GetOutboundStatusRequest\x1a<.xray.core.app.observatory.command.GetOutboundStatusResponse\"\x00B\x80\x01\n" +
+	"\x11GetOutboundStatus\x12;.xray.core.app.observatory.command.GetOutboundStatusRequest\x1a<.xray.core.app.observatory.command.GetOutboundStatusResponse\"\x00\x12\xa5\x01\n" +
+	"\x18TestOutboundCapabilities\x12B.xray.core.app.observatory.command.TestOutboundCapabilitiesRequest\x1aC.xray.core.app.observatory.command.TestOutboundCapabilitiesResponse\"\x00B\x80\x01\n" +
 	"%com.xray.core.app.observatory.commandP\x01Z1github.com/xtls/xray-core/app/observatory/command\xaa\x02!Xray.Core.App.Observatory.Commandb\x06proto3"
 
 var (
@@ -163,22 +544,34 @@ func file_app_observatory_command_command_proto_rawDescGZIP() []byte {
 	return file_app_observatory_command_command_proto_rawDescData
 }
 
-var file_app_observatory_command_command_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_app_observatory_command_command_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_app_observatory_command_command_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_app_observatory_command_command_proto_goTypes = []any{
-	(*GetOutboundStatusRequest)(nil),      // 0: xray.core.app.observatory.command.GetOutboundStatusRequest
-	(*GetOutboundStatusResponse)(nil),     // 1: xray.core.app.observatory.command.GetOutboundStatusResponse
-	(*Config)(nil),                        // 2: xray.core.app.observatory.command.Config
-	(*observatory.ObservationResult)(nil), // 3: xray.core.app.observatory.ObservationResult
+	(CapabilityProbeKind)(0),                 // 0: xray.core.app.observatory.command.CapabilityProbeKind
+	(CapabilityProbeStatus)(0),               // 1: xray.core.app.observatory.command.CapabilityProbeStatus
+	(*GetOutboundStatusRequest)(nil),         // 2: xray.core.app.observatory.command.GetOutboundStatusRequest
+	(*GetOutboundStatusResponse)(nil),        // 3: xray.core.app.observatory.command.GetOutboundStatusResponse
+	(*TestOutboundCapabilitiesRequest)(nil),  // 4: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
+	(*CapabilityProbeResult)(nil),            // 5: xray.core.app.observatory.command.CapabilityProbeResult
+	(*TestOutboundCapabilitiesResponse)(nil), // 6: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
+	(*Config)(nil),                           // 7: xray.core.app.observatory.command.Config
+	(*observatory.ObservationResult)(nil),    // 8: xray.core.app.observatory.ObservationResult
 }
 var file_app_observatory_command_command_proto_depIdxs = []int32{
-	3, // 0: xray.core.app.observatory.command.GetOutboundStatusResponse.status:type_name -> xray.core.app.observatory.ObservationResult
-	0, // 1: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:input_type -> xray.core.app.observatory.command.GetOutboundStatusRequest
-	1, // 2: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:output_type -> xray.core.app.observatory.command.GetOutboundStatusResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	8, // 0: xray.core.app.observatory.command.GetOutboundStatusResponse.status:type_name -> xray.core.app.observatory.ObservationResult
+	0, // 1: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest.kinds:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
+	0, // 2: xray.core.app.observatory.command.CapabilityProbeResult.kind:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
+	1, // 3: xray.core.app.observatory.command.CapabilityProbeResult.status:type_name -> xray.core.app.observatory.command.CapabilityProbeStatus
+	5, // 4: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse.results:type_name -> xray.core.app.observatory.command.CapabilityProbeResult
+	2, // 5: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:input_type -> xray.core.app.observatory.command.GetOutboundStatusRequest
+	4, // 6: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:input_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
+	3, // 7: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:output_type -> xray.core.app.observatory.command.GetOutboundStatusResponse
+	6, // 8: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:output_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_app_observatory_command_command_proto_init() }
@@ -191,13 +584,14 @@ func file_app_observatory_command_command_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_app_observatory_command_command_proto_rawDesc), len(file_app_observatory_command_command_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   3,
+			NumEnums:      2,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_app_observatory_command_command_proto_goTypes,
 		DependencyIndexes: file_app_observatory_command_command_proto_depIdxs,
+		EnumInfos:         file_app_observatory_command_command_proto_enumTypes,
 		MessageInfos:      file_app_observatory_command_command_proto_msgTypes,
 	}.Build()
 	File_app_observatory_command_command_proto = out.File

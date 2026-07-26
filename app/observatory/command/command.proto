@@ -15,9 +15,51 @@ message GetOutboundStatusResponse {
   xray.core.app.observatory.ObservationResult status = 1;
 }
 
+enum CapabilityProbeKind {
+  CAPABILITY_PROBE_KIND_UNSPECIFIED = 0;
+  CAPABILITY_PROBE_KIND_IPV4_HTTP = 1;
+  CAPABILITY_PROBE_KIND_IPV6_HTTP = 2;
+  CAPABILITY_PROBE_KIND_UDP_DNS = 3;
+}
+
+enum CapabilityProbeStatus {
+  CAPABILITY_PROBE_STATUS_UNSPECIFIED = 0;
+  CAPABILITY_PROBE_STATUS_REACHABLE = 1;
+  CAPABILITY_PROBE_STATUS_FAILED = 2;
+  CAPABILITY_PROBE_STATUS_UNAVAILABLE = 3;
+}
+
+message TestOutboundCapabilitiesRequest {
+  string outbound_tag = 1;
+  repeated CapabilityProbeKind kinds = 2;
+  string http_url = 3;
+  string udp_query_domain = 4;
+  string udp_dns_server = 5;
+  uint32 timeout_milliseconds = 6;
+}
+
+message CapabilityProbeResult {
+  CapabilityProbeKind kind = 1;
+  CapabilityProbeStatus status = 2;
+  int64 latency_milliseconds = 3;
+  int64 resolution_time_milliseconds = 4;
+  string address = 5;
+  uint32 http_status = 6;
+  uint32 dns_rcode = 7;
+  uint32 dns_answer_count = 8;
+  string failure_stage = 9;
+  string error = 10;
+}
+
+message TestOutboundCapabilitiesResponse {
+  repeated CapabilityProbeResult results = 1;
+}
+
 service ObservatoryService {
   rpc GetOutboundStatus(GetOutboundStatusRequest)
       returns (GetOutboundStatusResponse) {}
+  rpc TestOutboundCapabilities(TestOutboundCapabilitiesRequest)
+      returns (TestOutboundCapabilitiesResponse) {}
 }
 
 
