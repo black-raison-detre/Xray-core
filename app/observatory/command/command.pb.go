@@ -126,6 +126,159 @@ func (CapabilityProbeStatus) EnumDescriptor() ([]byte, []int) {
 	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{1}
 }
 
+type ResolverProbeTransport int32
+
+const (
+	ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_UNSPECIFIED ResolverProbeTransport = 0
+	ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_UDP         ResolverProbeTransport = 1
+	ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_TCP         ResolverProbeTransport = 2
+	ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_HTTPS       ResolverProbeTransport = 3
+	ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_H2C         ResolverProbeTransport = 4
+)
+
+// Enum value maps for ResolverProbeTransport.
+var (
+	ResolverProbeTransport_name = map[int32]string{
+		0: "RESOLVER_PROBE_TRANSPORT_UNSPECIFIED",
+		1: "RESOLVER_PROBE_TRANSPORT_UDP",
+		2: "RESOLVER_PROBE_TRANSPORT_TCP",
+		3: "RESOLVER_PROBE_TRANSPORT_HTTPS",
+		4: "RESOLVER_PROBE_TRANSPORT_H2C",
+	}
+	ResolverProbeTransport_value = map[string]int32{
+		"RESOLVER_PROBE_TRANSPORT_UNSPECIFIED": 0,
+		"RESOLVER_PROBE_TRANSPORT_UDP":         1,
+		"RESOLVER_PROBE_TRANSPORT_TCP":         2,
+		"RESOLVER_PROBE_TRANSPORT_HTTPS":       3,
+		"RESOLVER_PROBE_TRANSPORT_H2C":         4,
+	}
+)
+
+func (x ResolverProbeTransport) Enum() *ResolverProbeTransport {
+	p := new(ResolverProbeTransport)
+	*p = x
+	return p
+}
+
+func (x ResolverProbeTransport) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ResolverProbeTransport) Descriptor() protoreflect.EnumDescriptor {
+	return file_app_observatory_command_command_proto_enumTypes[2].Descriptor()
+}
+
+func (ResolverProbeTransport) Type() protoreflect.EnumType {
+	return &file_app_observatory_command_command_proto_enumTypes[2]
+}
+
+func (x ResolverProbeTransport) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ResolverProbeTransport.Descriptor instead.
+func (ResolverProbeTransport) EnumDescriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{2}
+}
+
+type ResolverProbeQueryType int32
+
+const (
+	ResolverProbeQueryType_RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED ResolverProbeQueryType = 0
+	ResolverProbeQueryType_RESOLVER_PROBE_QUERY_TYPE_A           ResolverProbeQueryType = 1
+	ResolverProbeQueryType_RESOLVER_PROBE_QUERY_TYPE_AAAA        ResolverProbeQueryType = 2
+)
+
+// Enum value maps for ResolverProbeQueryType.
+var (
+	ResolverProbeQueryType_name = map[int32]string{
+		0: "RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED",
+		1: "RESOLVER_PROBE_QUERY_TYPE_A",
+		2: "RESOLVER_PROBE_QUERY_TYPE_AAAA",
+	}
+	ResolverProbeQueryType_value = map[string]int32{
+		"RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED": 0,
+		"RESOLVER_PROBE_QUERY_TYPE_A":           1,
+		"RESOLVER_PROBE_QUERY_TYPE_AAAA":        2,
+	}
+)
+
+func (x ResolverProbeQueryType) Enum() *ResolverProbeQueryType {
+	p := new(ResolverProbeQueryType)
+	*p = x
+	return p
+}
+
+func (x ResolverProbeQueryType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ResolverProbeQueryType) Descriptor() protoreflect.EnumDescriptor {
+	return file_app_observatory_command_command_proto_enumTypes[3].Descriptor()
+}
+
+func (ResolverProbeQueryType) Type() protoreflect.EnumType {
+	return &file_app_observatory_command_command_proto_enumTypes[3]
+}
+
+func (x ResolverProbeQueryType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ResolverProbeQueryType.Descriptor instead.
+func (ResolverProbeQueryType) EnumDescriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{3}
+}
+
+type ResolverProbeStatus int32
+
+const (
+	ResolverProbeStatus_RESOLVER_PROBE_STATUS_UNSPECIFIED ResolverProbeStatus = 0
+	ResolverProbeStatus_RESOLVER_PROBE_STATUS_REACHABLE   ResolverProbeStatus = 1
+	ResolverProbeStatus_RESOLVER_PROBE_STATUS_FAILED      ResolverProbeStatus = 2
+)
+
+// Enum value maps for ResolverProbeStatus.
+var (
+	ResolverProbeStatus_name = map[int32]string{
+		0: "RESOLVER_PROBE_STATUS_UNSPECIFIED",
+		1: "RESOLVER_PROBE_STATUS_REACHABLE",
+		2: "RESOLVER_PROBE_STATUS_FAILED",
+	}
+	ResolverProbeStatus_value = map[string]int32{
+		"RESOLVER_PROBE_STATUS_UNSPECIFIED": 0,
+		"RESOLVER_PROBE_STATUS_REACHABLE":   1,
+		"RESOLVER_PROBE_STATUS_FAILED":      2,
+	}
+)
+
+func (x ResolverProbeStatus) Enum() *ResolverProbeStatus {
+	p := new(ResolverProbeStatus)
+	*p = x
+	return p
+}
+
+func (x ResolverProbeStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ResolverProbeStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_app_observatory_command_command_proto_enumTypes[4].Descriptor()
+}
+
+func (ResolverProbeStatus) Type() protoreflect.EnumType {
+	return &file_app_observatory_command_command_proto_enumTypes[4]
+}
+
+func (x ResolverProbeStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ResolverProbeStatus.Descriptor instead.
+func (ResolverProbeStatus) EnumDescriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{4}
+}
+
 type GetOutboundStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -450,6 +603,282 @@ func (x *TestOutboundCapabilitiesResponse) GetResults() []*CapabilityProbeResult
 	return nil
 }
 
+type TestResolverReachabilityRequest struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	OutboundTag         string                 `protobuf:"bytes,1,opt,name=outbound_tag,json=outboundTag,proto3" json:"outbound_tag,omitempty"`
+	Transport           ResolverProbeTransport `protobuf:"varint,2,opt,name=transport,proto3,enum=xray.core.app.observatory.command.ResolverProbeTransport" json:"transport,omitempty"`
+	Host                string                 `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`
+	Port                uint32                 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	Path                string                 `protobuf:"bytes,5,opt,name=path,proto3" json:"path,omitempty"`
+	QueryName           string                 `protobuf:"bytes,6,opt,name=query_name,json=queryName,proto3" json:"query_name,omitempty"`
+	QueryType           ResolverProbeQueryType `protobuf:"varint,7,opt,name=query_type,json=queryType,proto3,enum=xray.core.app.observatory.command.ResolverProbeQueryType" json:"query_type,omitempty"`
+	TimeoutMilliseconds uint32                 `protobuf:"varint,8,opt,name=timeout_milliseconds,json=timeoutMilliseconds,proto3" json:"timeout_milliseconds,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *TestResolverReachabilityRequest) Reset() {
+	*x = TestResolverReachabilityRequest{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestResolverReachabilityRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestResolverReachabilityRequest) ProtoMessage() {}
+
+func (x *TestResolverReachabilityRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestResolverReachabilityRequest.ProtoReflect.Descriptor instead.
+func (*TestResolverReachabilityRequest) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TestResolverReachabilityRequest) GetOutboundTag() string {
+	if x != nil {
+		return x.OutboundTag
+	}
+	return ""
+}
+
+func (x *TestResolverReachabilityRequest) GetTransport() ResolverProbeTransport {
+	if x != nil {
+		return x.Transport
+	}
+	return ResolverProbeTransport_RESOLVER_PROBE_TRANSPORT_UNSPECIFIED
+}
+
+func (x *TestResolverReachabilityRequest) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *TestResolverReachabilityRequest) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *TestResolverReachabilityRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *TestResolverReachabilityRequest) GetQueryName() string {
+	if x != nil {
+		return x.QueryName
+	}
+	return ""
+}
+
+func (x *TestResolverReachabilityRequest) GetQueryType() ResolverProbeQueryType {
+	if x != nil {
+		return x.QueryType
+	}
+	return ResolverProbeQueryType_RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED
+}
+
+func (x *TestResolverReachabilityRequest) GetTimeoutMilliseconds() uint32 {
+	if x != nil {
+		return x.TimeoutMilliseconds
+	}
+	return 0
+}
+
+type ResolverProbeResult struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Status              ResolverProbeStatus    `protobuf:"varint,1,opt,name=status,proto3,enum=xray.core.app.observatory.command.ResolverProbeStatus" json:"status,omitempty"`
+	TransportReachable  bool                   `protobuf:"varint,2,opt,name=transport_reachable,json=transportReachable,proto3" json:"transport_reachable,omitempty"`
+	ProtocolValid       bool                   `protobuf:"varint,3,opt,name=protocol_valid,json=protocolValid,proto3" json:"protocol_valid,omitempty"`
+	LatencyMilliseconds int64                  `protobuf:"varint,4,opt,name=latency_milliseconds,json=latencyMilliseconds,proto3" json:"latency_milliseconds,omitempty"`
+	Address             string                 `protobuf:"bytes,5,opt,name=address,proto3" json:"address,omitempty"`
+	HttpStatus          uint32                 `protobuf:"varint,6,opt,name=http_status,json=httpStatus,proto3" json:"http_status,omitempty"`
+	DnsRcode            uint32                 `protobuf:"varint,7,opt,name=dns_rcode,json=dnsRcode,proto3" json:"dns_rcode,omitempty"`
+	DnsAnswerCount      uint32                 `protobuf:"varint,8,opt,name=dns_answer_count,json=dnsAnswerCount,proto3" json:"dns_answer_count,omitempty"`
+	Answers             []string               `protobuf:"bytes,9,rep,name=answers,proto3" json:"answers,omitempty"`
+	Truncated           bool                   `protobuf:"varint,10,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	FailureStage        string                 `protobuf:"bytes,11,opt,name=failure_stage,json=failureStage,proto3" json:"failure_stage,omitempty"`
+	Error               string                 `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ResolverProbeResult) Reset() {
+	*x = ResolverProbeResult{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolverProbeResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolverProbeResult) ProtoMessage() {}
+
+func (x *ResolverProbeResult) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolverProbeResult.ProtoReflect.Descriptor instead.
+func (*ResolverProbeResult) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ResolverProbeResult) GetStatus() ResolverProbeStatus {
+	if x != nil {
+		return x.Status
+	}
+	return ResolverProbeStatus_RESOLVER_PROBE_STATUS_UNSPECIFIED
+}
+
+func (x *ResolverProbeResult) GetTransportReachable() bool {
+	if x != nil {
+		return x.TransportReachable
+	}
+	return false
+}
+
+func (x *ResolverProbeResult) GetProtocolValid() bool {
+	if x != nil {
+		return x.ProtocolValid
+	}
+	return false
+}
+
+func (x *ResolverProbeResult) GetLatencyMilliseconds() int64 {
+	if x != nil {
+		return x.LatencyMilliseconds
+	}
+	return 0
+}
+
+func (x *ResolverProbeResult) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *ResolverProbeResult) GetHttpStatus() uint32 {
+	if x != nil {
+		return x.HttpStatus
+	}
+	return 0
+}
+
+func (x *ResolverProbeResult) GetDnsRcode() uint32 {
+	if x != nil {
+		return x.DnsRcode
+	}
+	return 0
+}
+
+func (x *ResolverProbeResult) GetDnsAnswerCount() uint32 {
+	if x != nil {
+		return x.DnsAnswerCount
+	}
+	return 0
+}
+
+func (x *ResolverProbeResult) GetAnswers() []string {
+	if x != nil {
+		return x.Answers
+	}
+	return nil
+}
+
+func (x *ResolverProbeResult) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+func (x *ResolverProbeResult) GetFailureStage() string {
+	if x != nil {
+		return x.FailureStage
+	}
+	return ""
+}
+
+func (x *ResolverProbeResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type TestResolverReachabilityResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Result        *ResolverProbeResult   `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestResolverReachabilityResponse) Reset() {
+	*x = TestResolverReachabilityResponse{}
+	mi := &file_app_observatory_command_command_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestResolverReachabilityResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestResolverReachabilityResponse) ProtoMessage() {}
+
+func (x *TestResolverReachabilityResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_app_observatory_command_command_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestResolverReachabilityResponse.ProtoReflect.Descriptor instead.
+func (*TestResolverReachabilityResponse) Descriptor() ([]byte, []int) {
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *TestResolverReachabilityResponse) GetResult() *ResolverProbeResult {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
 type Config struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -458,7 +887,7 @@ type Config struct {
 
 func (x *Config) Reset() {
 	*x = Config{}
-	mi := &file_app_observatory_command_command_proto_msgTypes[5]
+	mi := &file_app_observatory_command_command_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -470,7 +899,7 @@ func (x *Config) String() string {
 func (*Config) ProtoMessage() {}
 
 func (x *Config) ProtoReflect() protoreflect.Message {
-	mi := &file_app_observatory_command_command_proto_msgTypes[5]
+	mi := &file_app_observatory_command_command_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -483,7 +912,7 @@ func (x *Config) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config.ProtoReflect.Descriptor instead.
 func (*Config) Descriptor() ([]byte, []int) {
-	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{5}
+	return file_app_observatory_command_command_proto_rawDescGZIP(), []int{8}
 }
 
 var File_app_observatory_command_command_proto protoreflect.FileDescriptor
@@ -515,7 +944,35 @@ const file_app_observatory_command_command_proto_rawDesc = "" +
 	"\x05error\x18\n" +
 	" \x01(\tR\x05error\"v\n" +
 	" TestOutboundCapabilitiesResponse\x12R\n" +
-	"\aresults\x18\x01 \x03(\v28.xray.core.app.observatory.command.CapabilityProbeResultR\aresults\"\b\n" +
+	"\aresults\x18\x01 \x03(\v28.xray.core.app.observatory.command.CapabilityProbeResultR\aresults\"\x85\x03\n" +
+	"\x1fTestResolverReachabilityRequest\x12!\n" +
+	"\foutbound_tag\x18\x01 \x01(\tR\voutboundTag\x12W\n" +
+	"\ttransport\x18\x02 \x01(\x0e29.xray.core.app.observatory.command.ResolverProbeTransportR\ttransport\x12\x12\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\rR\x04port\x12\x12\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x12\x1d\n" +
+	"\n" +
+	"query_name\x18\x06 \x01(\tR\tqueryName\x12X\n" +
+	"\n" +
+	"query_type\x18\a \x01(\x0e29.xray.core.app.observatory.command.ResolverProbeQueryTypeR\tqueryType\x121\n" +
+	"\x14timeout_milliseconds\x18\b \x01(\rR\x13timeoutMilliseconds\"\xe5\x03\n" +
+	"\x13ResolverProbeResult\x12N\n" +
+	"\x06status\x18\x01 \x01(\x0e26.xray.core.app.observatory.command.ResolverProbeStatusR\x06status\x12/\n" +
+	"\x13transport_reachable\x18\x02 \x01(\bR\x12transportReachable\x12%\n" +
+	"\x0eprotocol_valid\x18\x03 \x01(\bR\rprotocolValid\x121\n" +
+	"\x14latency_milliseconds\x18\x04 \x01(\x03R\x13latencyMilliseconds\x12\x18\n" +
+	"\aaddress\x18\x05 \x01(\tR\aaddress\x12\x1f\n" +
+	"\vhttp_status\x18\x06 \x01(\rR\n" +
+	"httpStatus\x12\x1b\n" +
+	"\tdns_rcode\x18\a \x01(\rR\bdnsRcode\x12(\n" +
+	"\x10dns_answer_count\x18\b \x01(\rR\x0ednsAnswerCount\x12\x18\n" +
+	"\aanswers\x18\t \x03(\tR\aanswers\x12\x1c\n" +
+	"\ttruncated\x18\n" +
+	" \x01(\bR\ttruncated\x12#\n" +
+	"\rfailure_stage\x18\v \x01(\tR\ffailureStage\x12\x14\n" +
+	"\x05error\x18\f \x01(\tR\x05error\"r\n" +
+	" TestResolverReachabilityResponse\x12N\n" +
+	"\x06result\x18\x01 \x01(\v26.xray.core.app.observatory.command.ResolverProbeResultR\x06result\"\b\n" +
 	"\x06Config*\xa9\x01\n" +
 	"\x13CapabilityProbeKind\x12%\n" +
 	"!CAPABILITY_PROBE_KIND_UNSPECIFIED\x10\x00\x12#\n" +
@@ -526,10 +983,25 @@ const file_app_observatory_command_command_proto_rawDesc = "" +
 	"#CAPABILITY_PROBE_STATUS_UNSPECIFIED\x10\x00\x12%\n" +
 	"!CAPABILITY_PROBE_STATUS_REACHABLE\x10\x01\x12\"\n" +
 	"\x1eCAPABILITY_PROBE_STATUS_FAILED\x10\x02\x12'\n" +
-	"#CAPABILITY_PROBE_STATUS_UNAVAILABLE\x10\x032\xcf\x02\n" +
+	"#CAPABILITY_PROBE_STATUS_UNAVAILABLE\x10\x03*\xcc\x01\n" +
+	"\x16ResolverProbeTransport\x12(\n" +
+	"$RESOLVER_PROBE_TRANSPORT_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cRESOLVER_PROBE_TRANSPORT_UDP\x10\x01\x12 \n" +
+	"\x1cRESOLVER_PROBE_TRANSPORT_TCP\x10\x02\x12\"\n" +
+	"\x1eRESOLVER_PROBE_TRANSPORT_HTTPS\x10\x03\x12 \n" +
+	"\x1cRESOLVER_PROBE_TRANSPORT_H2C\x10\x04*\x88\x01\n" +
+	"\x16ResolverProbeQueryType\x12)\n" +
+	"%RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bRESOLVER_PROBE_QUERY_TYPE_A\x10\x01\x12\"\n" +
+	"\x1eRESOLVER_PROBE_QUERY_TYPE_AAAA\x10\x02*\x83\x01\n" +
+	"\x13ResolverProbeStatus\x12%\n" +
+	"!RESOLVER_PROBE_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fRESOLVER_PROBE_STATUS_REACHABLE\x10\x01\x12 \n" +
+	"\x1cRESOLVER_PROBE_STATUS_FAILED\x10\x022\xf7\x03\n" +
 	"\x12ObservatoryService\x12\x90\x01\n" +
 	"\x11GetOutboundStatus\x12;.xray.core.app.observatory.command.GetOutboundStatusRequest\x1a<.xray.core.app.observatory.command.GetOutboundStatusResponse\"\x00\x12\xa5\x01\n" +
-	"\x18TestOutboundCapabilities\x12B.xray.core.app.observatory.command.TestOutboundCapabilitiesRequest\x1aC.xray.core.app.observatory.command.TestOutboundCapabilitiesResponse\"\x00B\x80\x01\n" +
+	"\x18TestOutboundCapabilities\x12B.xray.core.app.observatory.command.TestOutboundCapabilitiesRequest\x1aC.xray.core.app.observatory.command.TestOutboundCapabilitiesResponse\"\x00\x12\xa5\x01\n" +
+	"\x18TestResolverReachability\x12B.xray.core.app.observatory.command.TestResolverReachabilityRequest\x1aC.xray.core.app.observatory.command.TestResolverReachabilityResponse\"\x00B\x80\x01\n" +
 	"%com.xray.core.app.observatory.commandP\x01Z1github.com/xtls/xray-core/app/observatory/command\xaa\x02!Xray.Core.App.Observatory.Commandb\x06proto3"
 
 var (
@@ -544,34 +1016,46 @@ func file_app_observatory_command_command_proto_rawDescGZIP() []byte {
 	return file_app_observatory_command_command_proto_rawDescData
 }
 
-var file_app_observatory_command_command_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_app_observatory_command_command_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_app_observatory_command_command_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_app_observatory_command_command_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_app_observatory_command_command_proto_goTypes = []any{
 	(CapabilityProbeKind)(0),                 // 0: xray.core.app.observatory.command.CapabilityProbeKind
 	(CapabilityProbeStatus)(0),               // 1: xray.core.app.observatory.command.CapabilityProbeStatus
-	(*GetOutboundStatusRequest)(nil),         // 2: xray.core.app.observatory.command.GetOutboundStatusRequest
-	(*GetOutboundStatusResponse)(nil),        // 3: xray.core.app.observatory.command.GetOutboundStatusResponse
-	(*TestOutboundCapabilitiesRequest)(nil),  // 4: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
-	(*CapabilityProbeResult)(nil),            // 5: xray.core.app.observatory.command.CapabilityProbeResult
-	(*TestOutboundCapabilitiesResponse)(nil), // 6: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
-	(*Config)(nil),                           // 7: xray.core.app.observatory.command.Config
-	(*observatory.ObservationResult)(nil),    // 8: xray.core.app.observatory.ObservationResult
+	(ResolverProbeTransport)(0),              // 2: xray.core.app.observatory.command.ResolverProbeTransport
+	(ResolverProbeQueryType)(0),              // 3: xray.core.app.observatory.command.ResolverProbeQueryType
+	(ResolverProbeStatus)(0),                 // 4: xray.core.app.observatory.command.ResolverProbeStatus
+	(*GetOutboundStatusRequest)(nil),         // 5: xray.core.app.observatory.command.GetOutboundStatusRequest
+	(*GetOutboundStatusResponse)(nil),        // 6: xray.core.app.observatory.command.GetOutboundStatusResponse
+	(*TestOutboundCapabilitiesRequest)(nil),  // 7: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
+	(*CapabilityProbeResult)(nil),            // 8: xray.core.app.observatory.command.CapabilityProbeResult
+	(*TestOutboundCapabilitiesResponse)(nil), // 9: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
+	(*TestResolverReachabilityRequest)(nil),  // 10: xray.core.app.observatory.command.TestResolverReachabilityRequest
+	(*ResolverProbeResult)(nil),              // 11: xray.core.app.observatory.command.ResolverProbeResult
+	(*TestResolverReachabilityResponse)(nil), // 12: xray.core.app.observatory.command.TestResolverReachabilityResponse
+	(*Config)(nil),                           // 13: xray.core.app.observatory.command.Config
+	(*observatory.ObservationResult)(nil),    // 14: xray.core.app.observatory.ObservationResult
 }
 var file_app_observatory_command_command_proto_depIdxs = []int32{
-	8, // 0: xray.core.app.observatory.command.GetOutboundStatusResponse.status:type_name -> xray.core.app.observatory.ObservationResult
-	0, // 1: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest.kinds:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
-	0, // 2: xray.core.app.observatory.command.CapabilityProbeResult.kind:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
-	1, // 3: xray.core.app.observatory.command.CapabilityProbeResult.status:type_name -> xray.core.app.observatory.command.CapabilityProbeStatus
-	5, // 4: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse.results:type_name -> xray.core.app.observatory.command.CapabilityProbeResult
-	2, // 5: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:input_type -> xray.core.app.observatory.command.GetOutboundStatusRequest
-	4, // 6: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:input_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
-	3, // 7: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:output_type -> xray.core.app.observatory.command.GetOutboundStatusResponse
-	6, // 8: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:output_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	14, // 0: xray.core.app.observatory.command.GetOutboundStatusResponse.status:type_name -> xray.core.app.observatory.ObservationResult
+	0,  // 1: xray.core.app.observatory.command.TestOutboundCapabilitiesRequest.kinds:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
+	0,  // 2: xray.core.app.observatory.command.CapabilityProbeResult.kind:type_name -> xray.core.app.observatory.command.CapabilityProbeKind
+	1,  // 3: xray.core.app.observatory.command.CapabilityProbeResult.status:type_name -> xray.core.app.observatory.command.CapabilityProbeStatus
+	8,  // 4: xray.core.app.observatory.command.TestOutboundCapabilitiesResponse.results:type_name -> xray.core.app.observatory.command.CapabilityProbeResult
+	2,  // 5: xray.core.app.observatory.command.TestResolverReachabilityRequest.transport:type_name -> xray.core.app.observatory.command.ResolverProbeTransport
+	3,  // 6: xray.core.app.observatory.command.TestResolverReachabilityRequest.query_type:type_name -> xray.core.app.observatory.command.ResolverProbeQueryType
+	4,  // 7: xray.core.app.observatory.command.ResolverProbeResult.status:type_name -> xray.core.app.observatory.command.ResolverProbeStatus
+	11, // 8: xray.core.app.observatory.command.TestResolverReachabilityResponse.result:type_name -> xray.core.app.observatory.command.ResolverProbeResult
+	5,  // 9: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:input_type -> xray.core.app.observatory.command.GetOutboundStatusRequest
+	7,  // 10: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:input_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesRequest
+	10, // 11: xray.core.app.observatory.command.ObservatoryService.TestResolverReachability:input_type -> xray.core.app.observatory.command.TestResolverReachabilityRequest
+	6,  // 12: xray.core.app.observatory.command.ObservatoryService.GetOutboundStatus:output_type -> xray.core.app.observatory.command.GetOutboundStatusResponse
+	9,  // 13: xray.core.app.observatory.command.ObservatoryService.TestOutboundCapabilities:output_type -> xray.core.app.observatory.command.TestOutboundCapabilitiesResponse
+	12, // 14: xray.core.app.observatory.command.ObservatoryService.TestResolverReachability:output_type -> xray.core.app.observatory.command.TestResolverReachabilityResponse
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_app_observatory_command_command_proto_init() }
@@ -584,8 +1068,8 @@ func file_app_observatory_command_command_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_app_observatory_command_command_proto_rawDesc), len(file_app_observatory_command_command_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   6,
+			NumEnums:      5,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

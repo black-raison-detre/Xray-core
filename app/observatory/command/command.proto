@@ -55,11 +55,63 @@ message TestOutboundCapabilitiesResponse {
   repeated CapabilityProbeResult results = 1;
 }
 
+enum ResolverProbeTransport {
+  RESOLVER_PROBE_TRANSPORT_UNSPECIFIED = 0;
+  RESOLVER_PROBE_TRANSPORT_UDP = 1;
+  RESOLVER_PROBE_TRANSPORT_TCP = 2;
+  RESOLVER_PROBE_TRANSPORT_HTTPS = 3;
+  RESOLVER_PROBE_TRANSPORT_H2C = 4;
+}
+
+enum ResolverProbeQueryType {
+  RESOLVER_PROBE_QUERY_TYPE_UNSPECIFIED = 0;
+  RESOLVER_PROBE_QUERY_TYPE_A = 1;
+  RESOLVER_PROBE_QUERY_TYPE_AAAA = 2;
+}
+
+enum ResolverProbeStatus {
+  RESOLVER_PROBE_STATUS_UNSPECIFIED = 0;
+  RESOLVER_PROBE_STATUS_REACHABLE = 1;
+  RESOLVER_PROBE_STATUS_FAILED = 2;
+}
+
+message TestResolverReachabilityRequest {
+  string outbound_tag = 1;
+  ResolverProbeTransport transport = 2;
+  string host = 3;
+  uint32 port = 4;
+  string path = 5;
+  string query_name = 6;
+  ResolverProbeQueryType query_type = 7;
+  uint32 timeout_milliseconds = 8;
+}
+
+message ResolverProbeResult {
+  ResolverProbeStatus status = 1;
+  bool transport_reachable = 2;
+  bool protocol_valid = 3;
+  int64 latency_milliseconds = 4;
+  string address = 5;
+  uint32 http_status = 6;
+  uint32 dns_rcode = 7;
+  uint32 dns_answer_count = 8;
+  repeated string answers = 9;
+  bool truncated = 10;
+  string failure_stage = 11;
+  string error = 12;
+}
+
+message TestResolverReachabilityResponse {
+  ResolverProbeResult result = 1;
+}
+
 service ObservatoryService {
   rpc GetOutboundStatus(GetOutboundStatusRequest)
       returns (GetOutboundStatusResponse) {}
   rpc TestOutboundCapabilities(TestOutboundCapabilitiesRequest)
       returns (TestOutboundCapabilitiesResponse) {}
+  rpc TestResolverReachability(TestResolverReachabilityRequest)
+      returns (TestResolverReachabilityResponse) {}
 }
 
 
