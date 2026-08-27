@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package xray.proxy.gre;
+option csharp_namespace = "Xray.Proxy.Gre";
+option go_package = "github.com/xtls/xray-core/proxy/gre";
+option java_package = "com.xray.proxy.gre";
+option java_multiple_files = true;
+
+enum IcmpMode {
+  FAKE = 0;
+  PROBE = 1;
+}
+
+message Config {
+  string local_address = 1;
+  string remote_address = 2;
+  repeated string allowed_inner_sources = 3;
+  uint32 mtu = 4;
+  uint32 user_level = 5;
+  IcmpMode icmp_mode = 6;
+}

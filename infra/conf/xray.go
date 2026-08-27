@@ -19,6 +19,9 @@ import (
 )
 
 var (
+	noListenerInboundProtocols = map[string]bool{"tun": true}
+	strictPseudoInbounds       = map[string]bool{}
+
 	inboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
 		"tunnel":        func() interface{} { return new(DokodemoConfig) },
 		"dokodemo-door": func() interface{} { return new(DokodemoConfig) },
@@ -140,9 +143,12 @@ type InboundDetourConfig struct {
 func (c *InboundDetourConfig) Build() (*core.InboundHandlerConfig, error) {
 	receiverSettings := &proxyman.ReceiverConfig{}
 
-	// TUN inbound doesn't need port configuration as it uses network interface instead
-	if strings.ToLower(c.Protocol) == "tun" {
-		// Skip port validation for TUN
+	protocolName := strings.ToLower(c.Protocol)
+	// Pseudo inbounds own their packet source and don't listen on a transport port.
+	if noListenerInboundProtocols[protocolName] {
+		if strictPseudoInbounds[protocolName] && (c.PortList != nil || c.ListenOn != nil || c.StreamSetting != nil) {
+			return nil, errors.New(c.Protocol, " inbound does not accept listen, port, or streamSettings")
+		}
 	} else if c.ListenOn == nil {
 		// Listen on anyip, must set PortList
 		if c.PortList == nil {
