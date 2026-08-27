@@ -8,19 +8,22 @@ import (
 )
 
 func main() {
-	host := flag.String("host", "198.51.100.10", "address to bind")
+	host4 := flag.String("host4", "198.51.100.10", "IPv4 address to bind")
+	host6 := flag.String("host6", "2001:db8:198:51::10", "IPv6 address to bind")
 	flag.Parse()
-	errors := make(chan error, 2)
-	go func() { errors <- serveTCP(net.JoinHostPort(*host, "18080")) }()
-	go func() { errors <- serveUDP(net.JoinHostPort(*host, "15353")) }()
+	errors := make(chan error, 4)
+	go func() { errors <- serveTCP("tcp4", net.JoinHostPort(*host4, "18080")) }()
+	go func() { errors <- serveUDP("udp4", net.JoinHostPort(*host4, "15353")) }()
+	go func() { errors <- serveTCP("tcp6", net.JoinHostPort(*host6, "18080")) }()
+	go func() { errors <- serveUDP("udp6", net.JoinHostPort(*host6, "15353")) }()
 	if err := <-errors; err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func serveTCP(address string) error {
-	listener, err := net.Listen("tcp4", address)
+func serveTCP(network, address string) error {
+	listener, err := net.Listen(network, address)
 	if err != nil {
 		return err
 	}
@@ -45,8 +48,8 @@ func serveTCP(address string) error {
 	}
 }
 
-func serveUDP(address string) error {
-	conn, err := net.ListenPacket("udp4", address)
+func serveUDP(network, address string) error {
+	conn, err := net.ListenPacket(network, address)
 	if err != nil {
 		return err
 	}

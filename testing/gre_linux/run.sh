@@ -52,10 +52,14 @@ ip netns exec "$router_ns" ethtool -K greouter-r tx off tso off gso off gro off 
 ip netns exec "$xray_ns" ethtool -K greouter-x tx off tso off gso off gro off >/dev/null
 ip -n "$router_ns" address add 192.168.50.100/32 dev lo
 ip -n "$xray_ns" address add 198.51.100.10/32 dev lo
+ip -n "$router_ns" address add 2001:db8:50::100/128 dev lo
+ip -n "$xray_ns" address add 2001:db8:198:51::10/128 dev lo
 ip -n "$router_ns" link add gre-xray type gre local 172.31.255.1 remote 172.31.255.2 ttl 64
 ip -n "$router_ns" address add 10.255.0.1/30 dev gre-xray
+ip -n "$router_ns" address add 2001:db8:10::1/64 dev gre-xray
 ip -n "$router_ns" link set gre-xray mtu 1400 up
 ip -n "$router_ns" route add 198.51.100.10/32 dev gre-xray src 192.168.50.100
+ip -6 -n "$router_ns" route add 2001:db8:198:51::10/128 dev gre-xray src 2001:db8:50::100
 
 cat >"$results_dir/xray.json" <<'EOF'
 {
@@ -66,7 +70,7 @@ cat >"$results_dir/xray.json" <<'EOF'
     "settings": {
       "localAddress": "172.31.255.2",
       "remoteAddress": "172.31.255.1",
-      "allowedInnerSources": ["192.168.50.100/32"],
+      "allowedInnerSources": ["192.168.50.100/32", "2001:db8:50::100/128"],
       "mtu": 1400,
       "icmpMode": "fake"
     }
@@ -91,11 +95,16 @@ while [ "$attempt" -lt 50 ]; do
 done
 [ "$ready" = true ] || { cat "$results_dir/xray.log" >&2; echo "Xray GRE startup timed out" >&2; exit 1; }
 
-ip netns exec "$router_ns" "$results_dir/gre-client" >"$results_dir/client.log"
-cat "$results_dir/client.log"
+ip netns exec "$router_ns" "$results_dir/gre-client" >"$results_dir/client-ipv4.log"
+ip netns exec "$router_ns" "$results_dir/gre-client" -source 2001:db8:50::100 -target 2001:db8:198:51::10 >"$results_dir/client-ipv6.log"
+cat "$results_dir/client-ipv4.log"
+cat "$results_dir/client-ipv6.log"
 ip netns exec "$router_ns" ping -c 1 -W 2 -I 192.168.50.100 198.51.100.10 >"$results_dir/icmp.log"
+ip netns exec "$router_ns" ping -6 -c 1 -W 2 -I 2001:db8:50::100 2001:db8:198:51::10 >"$results_dir/icmp-ipv6.log"
 ip -s -n "$router_ns" link show gre-xray >"$results_dir/gre-stats.log"
 
-grep -q 'GRE_NAMESPACE_TRAFFIC_OK' "$results_dir/client.log"
+grep -q 'GRE_NAMESPACE_TRAFFIC_OK family=ipv4' "$results_dir/client-ipv4.log"
+grep -q 'GRE_NAMESPACE_TRAFFIC_OK family=ipv6' "$results_dir/client-ipv6.log"
 grep -q '1 received' "$results_dir/icmp.log"
+grep -q '1 received' "$results_dir/icmp-ipv6.log"
 echo "GRE_NAMESPACE_OK results=$results_dir"

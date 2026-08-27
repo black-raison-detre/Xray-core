@@ -1,3 +1,5 @@
+//go:build !routeros_gre
+
 package conf
 
 import (
@@ -34,5 +36,14 @@ func TestTunICMPMode(t *testing.T) {
 func TestTunRejectsUnknownICMPMode(t *testing.T) {
 	if _, err := (&TunConfig{ICMPMode: "remote"}).Build(); err == nil {
 		t.Fatal("expected unknown icmpMode to fail")
+	}
+}
+
+func TestTunConfigRegistered(t *testing.T) {
+	if _, err := inboundConfigLoader.LoadWithID([]byte(`{}`), "tun"); err != nil {
+		t.Fatal(err)
+	}
+	if !noListenerInboundProtocols["tun"] {
+		t.Fatal("tun is not registered as a no-listener inbound")
 	}
 }

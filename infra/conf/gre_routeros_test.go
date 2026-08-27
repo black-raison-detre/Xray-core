@@ -13,7 +13,7 @@ import (
 func TestGREConfigBuild(t *testing.T) {
 	message, err := (&GREConfig{
 		LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1",
-		AllowedInnerSources: []string{"192.168.50.100/32"}, ICMPMode: " PrObE ",
+		AllowedInnerSources: []string{"192.168.50.100/32", "2001:db8:50::1234/64"}, ICMPMode: " PrObE ",
 	}).Build()
 	if err != nil {
 		t.Fatal(err)
@@ -21,6 +21,22 @@ func TestGREConfigBuild(t *testing.T) {
 	config := message.(*gre.Config)
 	if config.GetMtu() != 1400 || config.GetIcmpMode() != gre.IcmpMode_PROBE {
 		t.Fatalf("unexpected GRE defaults: %#v", config)
+	}
+	if got := config.GetAllowedInnerSources(); len(got) != 2 || got[1] != "2001:db8:50::/64" {
+		t.Fatalf("allowedInnerSources = %v", got)
+	}
+}
+
+func TestGREConfigPreservesIPv4MinimumMTU(t *testing.T) {
+	message, err := (&GREConfig{
+		LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1",
+		AllowedInnerSources: []string{"192.168.50.100/32"}, MTU: 576,
+	}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := message.(*gre.Config).GetMtu(); got != 576 {
+		t.Fatalf("mtu = %d", got)
 	}
 }
 
@@ -33,7 +49,9 @@ func TestGREConfigValidation(t *testing.T) {
 		{name: "missing peer", config: GREConfig{LocalAddress: "172.31.255.2", AllowedInnerSources: []string{"192.168.50.100/32"}}, want: "remoteAddress"},
 		{name: "same peer", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.2", AllowedInnerSources: []string{"192.168.50.100/32"}}, want: "must differ"},
 		{name: "empty sources", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1"}, want: "must not be empty"},
-		{name: "ipv6 source", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"2001:db8::/64"}}, want: "IPv4 CIDRs"},
+		{name: "ipv6 outer", config: GREConfig{LocalAddress: "2001:db8::2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"2001:db8::/64"}}, want: "unicast IPv4"},
+		{name: "mapped source", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"::ffff:192.0.2.0/120"}}, want: "IPv4 or IPv6 CIDRs"},
+		{name: "small ipv6 mtu", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"2001:db8::/64"}, MTU: 1279}, want: "1280..1472"},
 		{name: "large mtu", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"192.168.50.100/32"}, MTU: 1473}, want: "576..1472"},
 		{name: "unknown icmp", config: GREConfig{LocalAddress: "172.31.255.2", RemoteAddress: "172.31.255.1", AllowedInnerSources: []string{"192.168.50.100/32"}, ICMPMode: "remote"}, want: "unknown GRE ICMP"},
 	}

@@ -8,6 +8,6 @@ Run on Linux as root:
 sudo ./testing/gre_linux/run.sh
 ```
 
-The test verifies TCP, UDP, a fragmented 4096-byte UDP datagram, TUN-style ICMP echo, GRE interface counters, and namespace cleanup. Results and logs are written under `/tmp/xray-gre-linux.*` unless `RESULTS_DIR` is provided.
+The test verifies IPv4 and IPv6 inner TCP, UDP, fragmented 4096-byte UDP datagrams, ICMP/ICMPv6 echo, GRE interface counters, and namespace cleanup over an IPv4 GRE outer transport. Results and logs are written under `/tmp/xray-gre-linux.*` unless `RESULTS_DIR` is provided.
 
 This is Linux kernel interoperability proof. It is not RouterOS hardware, WAN egress, ARMv5 runtime, or fail-open RouterOS policy-routing proof.

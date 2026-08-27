@@ -3,8 +3,11 @@
 package gre
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
@@ -25,11 +29,41 @@ import (
 
 func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 	config := testRuntimeConfig(t)
-	targetAddress := tcpip.AddrFrom4([4]byte{198, 51, 100, 10})
-	clientAddress := tcpip.AddrFrom4(config.allowed[0].Addr().As4())
+	tests := []struct {
+		name            string
+		clientAddress   tcpip.Address
+		targetAddress   tcpip.Address
+		networkProtocol tcpip.NetworkProtocolNumber
+		defaultSubnet   tcpip.Subnet
+	}{
+		{
+			name:            "ipv4",
+			clientAddress:   tcpip.AddrFrom4(config.allowed[0].Addr().As4()),
+			targetAddress:   tcpip.AddrFrom4([4]byte{198, 51, 100, 10}),
+			networkProtocol: ipv4.ProtocolNumber,
+			defaultSubnet:   header.IPv4EmptySubnet,
+		},
+		{
+			name:            "ipv6",
+			clientAddress:   tcpip.AddrFrom16(config.allowed[1].Addr().As16()),
+			targetAddress:   tcpip.AddrFrom16(netip.MustParseAddr("2001:db8:198:51::10").As16()),
+			networkProtocol: ipv6.ProtocolNumber,
+			defaultSubnet:   header.IPv6EmptySubnet,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			testGREInMemoryTCPAndUDPFlow(t, config, test.clientAddress, test.targetAddress, test.networkProtocol, test.defaultSubnet)
+		})
+	}
+}
+
+func testGREInMemoryTCPAndUDPFlow(t *testing.T, config runtimeConfig, clientAddress, targetAddress tcpip.Address, networkProtocol tcpip.NetworkProtocolNumber, defaultSubnet tcpip.Subnet) {
+	t.Helper()
 	targetEndpoint := channel.New(1024, config.mtu, "")
 
-	requestLog := make(chan string, 2)
+	requestLog := make(chan string, 3)
 	targetStack, err := packetstack.New(context.Background(), packetstack.Options{
 		Endpoint: targetEndpoint,
 		HandleConnection: func(conn xnet.Conn, destination xnet.Destination) {
@@ -44,14 +78,14 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 				requestLog <- string(payload)
 				_, _ = conn.Write([]byte("tcp-pong"))
 			case 53:
-				payload := make([]byte, 64)
+				payload := make([]byte, 8192)
 				n, err := conn.Read(payload)
 				if err != nil {
 					requestLog <- "udp-read:" + err.Error()
 					return
 				}
-				requestLog <- string(payload[:n])
-				_, _ = conn.Write([]byte("udp-pong"))
+				requestLog <- fmt.Sprintf("udp:%d", n)
+				_, _ = conn.Write(payload[:n])
 			}
 		},
 		ICMPEchoDelay: func() (time.Duration, bool) { return 0, true },
@@ -66,19 +100,19 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 
 	clientEndpoint := channel.New(1024, config.mtu, "")
 	clientStack := stack.New(stack.Options{
-		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
+		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
 	if err := clientStack.CreateNIC(1, clientEndpoint); err != nil {
 		t.Fatal(err.String())
 	}
 	if err := clientStack.AddProtocolAddress(1, tcpip.ProtocolAddress{
-		Protocol:          ipv4.ProtocolNumber,
+		Protocol:          networkProtocol,
 		AddressWithPrefix: clientAddress.WithPrefix(),
 	}, stack.AddressProperties{}); err != nil {
 		t.Fatal(err.String())
 	}
-	clientStack.SetRouteTable([]tcpip.Route{{Destination: header.IPv4EmptySubnet, NIC: 1}})
+	clientStack.SetRouteTable([]tcpip.Route{{Destination: defaultSubnet, NIC: 1}})
 
 	bridgeCtx, cancelBridge := context.WithCancel(context.Background())
 	var bridgeWG sync.WaitGroup
@@ -102,8 +136,8 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 				continue
 			}
 			ingressPackets.Add(1)
-			inbound := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), decoded.innerIPv4...))})
-			targetEndpoint.InjectInbound(header.IPv4ProtocolNumber, inbound)
+			inbound := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), decoded.innerPacket...))})
+			targetEndpoint.InjectInbound(decoded.networkProtocol, inbound)
 			inbound.DecRef()
 		}
 	}()
@@ -116,15 +150,21 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 			}
 			view := packet.ToView()
 			packet.DecRef()
-			encoded, err := encodeGREPacket(view.AsSlice(), config.mtu)
+			fragments, err := fragmentIPPacket(view.AsSlice(), config.mtu)
 			view.Release()
 			if err != nil {
 				continue
 			}
-			egressPackets.Add(1)
-			inbound := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), encoded[4:]...))})
-			clientEndpoint.InjectInbound(header.IPv4ProtocolNumber, inbound)
-			inbound.DecRef()
+			for _, fragment := range fragments {
+				encoded, err := encodeGREPacket(fragment, config.mtu)
+				if err != nil {
+					continue
+				}
+				egressPackets.Add(1)
+				inbound := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), encoded[4:]...))})
+				clientEndpoint.InjectInbound(networkProtocolForPacket(fragment), inbound)
+				inbound.DecRef()
+			}
 		}
 	}()
 
@@ -143,7 +183,7 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	tcpConn, err := gonet.DialContextTCP(ctx, clientStack, tcpip.FullAddress{NIC: 1, Addr: targetAddress, Port: 443}, ipv4.ProtocolNumber)
+	tcpConn, err := gonet.DialContextTCP(ctx, clientStack, tcpip.FullAddress{NIC: 1, Addr: targetAddress, Port: 443}, networkProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,30 +199,33 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 		t.Fatalf("TCP reply = %q", tcpReply)
 	}
 
-	udpConn, err := gonet.DialUDP(
-		clientStack,
-		&tcpip.FullAddress{NIC: 1, Addr: clientAddress, Port: 53000},
-		&tcpip.FullAddress{NIC: 1, Addr: targetAddress, Port: 53},
-		ipv4.ProtocolNumber,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = udpConn.SetDeadline(time.Now().Add(5 * time.Second))
-	if _, err := udpConn.Write([]byte("udp-ping")); err != nil {
-		t.Fatal(err)
-	}
-	udpReply := make([]byte, len("udp-pong"))
-	if _, err := io.ReadFull(udpConn, udpReply); err != nil {
-		t.Fatal(err)
-	}
-	_ = udpConn.Close()
-	if string(udpReply) != "udp-pong" {
-		t.Fatalf("UDP reply = %q", udpReply)
+	for index, size := range []int{8, 4096} {
+		udpConn, err := gonet.DialUDP(
+			clientStack,
+			&tcpip.FullAddress{NIC: 1, Addr: clientAddress, Port: uint16(53000 + index)},
+			&tcpip.FullAddress{NIC: 1, Addr: targetAddress, Port: 53},
+			networkProtocol,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = udpConn.SetDeadline(time.Now().Add(5 * time.Second))
+		payload := bytes.Repeat([]byte{byte(size)}, size)
+		if _, err := udpConn.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+		udpReply := make([]byte, len(payload))
+		if _, err := io.ReadFull(udpConn, udpReply); err != nil {
+			t.Fatal(err)
+		}
+		_ = udpConn.Close()
+		if !bytes.Equal(udpReply, payload) {
+			t.Fatalf("UDP %d-byte reply mismatch", size)
+		}
 	}
 
 	seen := map[string]bool{}
-	for range 2 {
+	for range 3 {
 		select {
 		case request := <-requestLog:
 			seen[request] = true
@@ -190,10 +233,17 @@ func TestGREInMemoryTCPAndUDPFlow(t *testing.T) {
 			t.Fatal("timed out waiting for dispatcher-side requests")
 		}
 	}
-	if !seen["tcp-ping"] || !seen["udp-ping"] {
+	if !seen["tcp-ping"] || !seen["udp:8"] || !seen["udp:4096"] {
 		t.Fatalf("dispatcher-side requests = %#v", seen)
 	}
 	if ingressPackets.Load() == 0 || egressPackets.Load() == 0 {
 		t.Fatalf("GRE packet counters ingress=%d egress=%d", ingressPackets.Load(), egressPackets.Load())
 	}
+}
+
+func networkProtocolForPacket(packet []byte) tcpip.NetworkProtocolNumber {
+	if len(packet) > 0 && packet[0]>>4 == 6 {
+		return header.IPv6ProtocolNumber
+	}
+	return header.IPv4ProtocolNumber
 }

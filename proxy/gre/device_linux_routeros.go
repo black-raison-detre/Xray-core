@@ -13,7 +13,6 @@ import (
 	"github.com/xtls/xray-core/common/errors"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -116,8 +115,8 @@ func (d *rawDevice) receiveLoop() {
 			}
 			continue
 		}
-		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), decoded.innerIPv4...))})
-		d.endpoint.InjectInbound(header.IPv4ProtocolNumber, packet)
+		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), decoded.innerPacket...))})
+		d.endpoint.InjectInbound(decoded.networkProtocol, packet)
 		packet.DecRef()
 	}
 }
@@ -131,7 +130,7 @@ func (d *rawDevice) sendLoop() {
 		}
 		view := packet.ToView()
 		packet.DecRef()
-		fragments, err := fragmentIPv4Packet(view.AsSlice(), d.config.mtu)
+		fragments, err := fragmentIPPacket(view.AsSlice(), d.config.mtu)
 		view.Release()
 		if err != nil {
 			d.logDrop("reject outbound packet", err)

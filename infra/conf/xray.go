@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	noListenerInboundProtocols = map[string]bool{"tun": true}
+	noListenerInboundProtocols = map[string]bool{}
 	strictPseudoInbounds       = map[string]bool{}
 
 	inboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
@@ -35,7 +35,6 @@ var (
 		"anytls":        func() interface{} { return new(AnyTLSServerConfig) },
 		"wireguard":     func() interface{} { return &WireGuardConfig{IsClient: false} },
 		"hysteria":      func() interface{} { return new(HysteriaServerConfig) },
-		"tun":           func() interface{} { return new(TunConfig) },
 	}, "protocol", "settings")
 
 	outboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{

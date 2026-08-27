@@ -1,3 +1,5 @@
+//go:build !routeros_gre
+
 package conf
 
 import (

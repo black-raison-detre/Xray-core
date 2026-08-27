@@ -37,11 +37,13 @@ func (c *GREConfig) Build() (proto.Message, error) {
 		return nil, errors.New("GRE allowedInnerSources must not be empty")
 	}
 	allowed := make([]string, 0, len(c.AllowedInnerSources))
+	hasIPv6 := false
 	for _, value := range c.AllowedInnerSources {
 		prefix, err := netip.ParsePrefix(strings.TrimSpace(value))
-		if err != nil || !prefix.Addr().Is4() {
-			return nil, errors.New("GRE allowedInnerSources must contain IPv4 CIDRs: ", value)
+		if err != nil || prefix.Addr().Is4In6() {
+			return nil, errors.New("GRE allowedInnerSources must contain IPv4 or IPv6 CIDRs: ", value)
 		}
+		hasIPv6 = hasIPv6 || prefix.Addr().Is6()
 		allowed = append(allowed, prefix.Masked().String())
 	}
 	mtu := c.MTU
@@ -50,6 +52,9 @@ func (c *GREConfig) Build() (proto.Message, error) {
 	}
 	if mtu < 576 || mtu > 1472 {
 		return nil, errors.New("GRE mtu must be 576..1472")
+	}
+	if hasIPv6 && mtu < 1280 {
+		return nil, errors.New("GRE mtu must be 1280..1472 when IPv6 inner sources are configured")
 	}
 	config := &gre.Config{
 		LocalAddress:        local.String(),
