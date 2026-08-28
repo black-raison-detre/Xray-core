@@ -11,7 +11,7 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 - [x] Darwin TUN: replace the empty-queue busy-spin with kqueue-backed waiting and retain the upstream close/failure safeguards (`aa3d6589`, #6580).
 - [x] Config: port empty-listen, nil-address, VLESS/Trojan validation-order, HTTP target, and Unix-listener fixes (`3af7f252`, #6640).
 - [x] WireGuard: port `sendThrough` repair plus `remoteDNS` and TTL handling (`7d214f8b`, `c7e569b0`).
-- [ ] Routing and sniffing: port macOS IPv4-mapped process lookup and uTP sniffing fixes (`8b419d83`, `9b373e39`).
+- [x] Routing and sniffing: port iOS process-lookup separation, macOS IPv4-mapped process lookup, and uTP sniffing fixes (`5b1b4105`, `8b419d83`, `9b373e39`).
 - [ ] Server address reporting: port accurate XHTTP and gRPC `localAddr` handling (`4aba687d`).
 
 ## Platform and behavior updates to review
@@ -21,7 +21,7 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 - [ ] Review the XHTTP default `maxConnections` reduction from 6 to 3 (`18e28390`) for anti-TSPU behavior.
 - [ ] Review the unnamed TUN default change from `xray0` to an available `utunN`; the paired GUI supplies `Xray-GUI TUN` explicitly, so its managed path does not use this default (`6ce924ad`).
 - [ ] Port Windows TUN `desc` support while retaining custom `icmpMode` (`1d8eb81d`).
-- [ ] Port the remaining routing (`localOS`, iOS process exclusion), REALITY warning, dependency, workflow, and release updates after the runtime fixes.
+- [ ] Port the remaining routing `localOS` feature, REALITY warning, dependency, workflow, and release updates after the runtime fixes.
 
 ## Manual integration requirements
 
