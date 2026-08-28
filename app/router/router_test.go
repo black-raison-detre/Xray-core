@@ -2,6 +2,7 @@ package router_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -12,6 +13,7 @@ import (
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/features/dns"
 	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/routing"
 	routing_session "github.com/xtls/xray-core/features/routing/session"
 	"github.com/xtls/xray-core/testing/mocks"
 )
@@ -19,6 +21,84 @@ import (
 type mockOutboundManager struct {
 	outbound.Manager
 	outbound.HandlerSelector
+}
+
+func TestRouterConcurrentRuleUpdatesAndReads(t *testing.T) {
+	configFor := func(ruleTag, outboundTag string) *Config {
+		return &Config{Rule: []*RoutingRule{{
+			TargetTag: &RoutingRule_Tag{Tag: outboundTag},
+			RuleTag:   ruleTag,
+			Networks:  []net.Network{net.Network_TCP},
+		}}}
+	}
+	configA := configFor("rule-a", "outbound-a")
+	configB := configFor("rule-b", "outbound-b")
+
+	r := new(Router)
+	common.Must(r.Init(context.Background(), configA, nil, nil, nil))
+
+	routingContext := func() routing.Context {
+		ctx := session.ContextWithOutbounds(context.Background(), []*session.Outbound{{
+			Target: net.TCPDestination(net.DomainAddress("example.com"), 80),
+		}})
+		return routing_session.AsRoutingContext(ctx)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			if err := r.ReloadRules(configB, false); err != nil {
+				t.Errorf("reload rule B: %v", err)
+				return
+			}
+			if err := r.RemoveRule("rule-b"); err != nil {
+				t.Errorf("remove rule B: %v", err)
+				return
+			}
+			if err := r.ReloadRules(configA, false); err != nil {
+				t.Errorf("reload rule A: %v", err)
+				return
+			}
+		}
+	}()
+
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				_ = r.ListRule()
+				route, err := r.PickRoute(routingContext())
+				if err == common.ErrNoClue {
+					continue
+				}
+				if err != nil {
+					t.Errorf("pick route: %v", err)
+					return
+				}
+				switch route.GetOutboundTag() {
+				case "outbound-a", "outbound-b":
+				default:
+					t.Errorf("unexpected outbound tag %q", route.GetOutboundTag())
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if err := r.ReloadRules(configA, false); err != nil {
+		t.Fatal(err)
+	}
+	route, err := r.PickRoute(routingContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := route.GetOutboundTag(); got != "outbound-a" {
+		t.Fatalf("final outbound tag = %q, want outbound-a", got)
+	}
 }
 
 func TestSimpleRouter(t *testing.T) {
