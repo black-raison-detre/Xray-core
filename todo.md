@@ -6,7 +6,7 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 
 - [x] Observatory: sleep for the configured probe interval when no outbound matches `subjectSelector` instead of busy-spinning at 100% CPU (`f124daf5`, #6669).
 - [x] Router: port the API data-race refactor (`598bde74`, #6678) without changing custom routing behavior.
-- [ ] XHTTP: port the closed-state/data-race fix and preserve upload buffer accounting (`77f98eba`, #6665).
+- [x] XHTTP: port the closed-state/data-race fix and preserve upload buffer accounting (`77f98eba`, #6665).
 - [ ] XHTTP: define replayable packet-up request bodies for HTTP/2 GOAWAY retries (`dffc7ada`, #6632).
 - [ ] Darwin TUN: replace the empty-queue busy-spin with kqueue-backed waiting and retain the upstream close/failure safeguards (`aa3d6589`, #6580).
 - [ ] Config: port empty-listen, nil-address, VLESS/Trojan validation-order, HTTP target, and Unix-listener fixes (`3af7f252`, #6640).
