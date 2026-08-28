@@ -12,7 +12,7 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 - [x] Config: port empty-listen, nil-address, VLESS/Trojan validation-order, HTTP target, and Unix-listener fixes (`3af7f252`, #6640).
 - [x] WireGuard: port `sendThrough` repair plus `remoteDNS` and TTL handling (`7d214f8b`, `c7e569b0`).
 - [x] Routing and sniffing: port iOS process-lookup separation, macOS IPv4-mapped process lookup, and uTP sniffing fixes (`5b1b4105`, `8b419d83`, `9b373e39`).
-- [ ] Server address reporting: port accurate XHTTP and gRPC `localAddr` handling (`4aba687d`).
+- [x] Server address reporting: port accurate XHTTP and gRPC `localAddr` handling (`4aba687d`).
 
 ## Platform and behavior updates to review
 

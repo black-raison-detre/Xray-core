@@ -51,3 +51,15 @@ func TestRemoteAddrFromContext(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalAddrFromContext(t *testing.T) {
+	want := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8443}
+	ctx := peer.NewContext(context.Background(), &peer.Peer{LocalAddr: want})
+	if got := localAddrFromContext(ctx); got.String() != want.String() {
+		t.Fatalf("local address = %s, want %s", got, want)
+	}
+
+	if got := localAddrFromContext(context.Background()); got.String() != "0.0.0.0:0" {
+		t.Fatalf("fallback local address = %s, want 0.0.0.0:0", got)
+	}
+}
