@@ -25,17 +25,17 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 
 ## Manual integration requirements
 
-- [ ] Resolve the TUN protobuf field collision by keeping upstream `desc = 8`, moving custom `icmp_mode` to field 9, and regenerating `proxy/tun/config.pb.go` with repository-compatible protobuf tooling. Confirm whether any deployed component persists raw custom TUN protobuf messages before renumbering.
+- [x] Resolve the TUN protobuf field collision by keeping upstream `desc = 8`, moving custom `icmp_mode` to field 9, and regenerating `proxy/tun/config.pb.go` with repository-compatible protobuf tooling. The paired GUI persists JSON; CLI-produced custom `.pb` configs must be regenerated from JSON.
 - [ ] Preserve AnyTLS, ShadowsocksR, GRE, `noListenerInboundProtocols`, `strictPseudoInbounds`, and RouterOS build-tag behavior while applying upstream `infra/conf/xray.go` and TUN changes.
-- [ ] Combine the upstream and custom TUN README examples and limitations.
+- [x] Combine the upstream and custom TUN README examples and limitations.
 - [ ] Update and validate the paired Xray-GUI `third_party/Xray-core` snapshot before claiming the packaged GUI contains the ported fixes.
 
 ## Integration validation
 
-- [ ] Run focused race tests for Observatory, Router, and XHTTP.
-- [ ] Run focused TUN/config tests on Darwin and the RouterOS GRE build-tag path.
-- [ ] Run WireGuard, routing, BitTorrent sniffer, and affected transport package tests.
-- [ ] Run formatting checks, `git diff --check`, the release-style build, and the full Go suite; report external-network test failures separately from source regressions.
+- [x] Run focused race tests for Observatory, Router, and XHTTP.
+- [x] Run focused TUN/config tests on Darwin and the RouterOS GRE build-tag path.
+- [x] Run WireGuard, routing, BitTorrent sniffer, and affected transport package tests.
+- [x] Run formatting checks, `git diff --check`, the release-style build, and the full Go suite; report external-network test failures separately from source regressions.
 
 # Resolver reachability review follow-up
 

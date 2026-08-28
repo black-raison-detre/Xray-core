@@ -33,6 +33,30 @@ func TestTunICMPMode(t *testing.T) {
 	}
 }
 
+func TestTunDescription(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "default", want: "Wintun"},
+		{name: "custom", value: "Xray-GUI TUN", want: "Xray-GUI TUN"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message, err := (&TunConfig{Desc: test.value}).Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := message.(*tun.Config)
+			if config.Desc != test.want {
+				t.Fatalf("Desc = %q, want %q", config.Desc, test.want)
+			}
+		})
+	}
+}
+
 func TestTunRejectsUnknownICMPMode(t *testing.T) {
 	if _, err := (&TunConfig{ICMPMode: "remote"}).Build(); err == nil {
 		t.Fatal("expected unknown icmpMode to fail")
