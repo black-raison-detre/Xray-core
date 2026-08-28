@@ -10,7 +10,7 @@ Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main`
 - [x] XHTTP: define replayable packet-up request bodies for HTTP/2 GOAWAY retries (`dffc7ada`, #6632).
 - [x] Darwin TUN: replace the empty-queue busy-spin with kqueue-backed waiting and retain the upstream close/failure safeguards (`aa3d6589`, #6580).
 - [x] Config: port empty-listen, nil-address, VLESS/Trojan validation-order, HTTP target, and Unix-listener fixes (`3af7f252`, #6640).
-- [ ] WireGuard: port `sendThrough` repair plus `remoteDNS` and TTL handling (`7d214f8b`, `c7e569b0`).
+- [x] WireGuard: port `sendThrough` repair plus `remoteDNS` and TTL handling (`7d214f8b`, `c7e569b0`).
 - [ ] Routing and sniffing: port macOS IPv4-mapped process lookup and uTP sniffing fixes (`8b419d83`, `9b373e39`).
 - [ ] Server address reporting: port accurate XHTTP and gRPC `localAddr` handling (`4aba687d`).
 
