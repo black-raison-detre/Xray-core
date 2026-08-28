@@ -26,6 +26,7 @@ const (
 	ipProtocolGRE    = 47
 	ipProtocolICMPv6 = 58
 	greChecksumFlag  = 0x8000
+	// RFC 2784 requires receivers to reject bits 1-5 and ignore bits 6-12.
 	greRejectedFlags = 0x7c00
 	greVersionMask   = 0x0007
 )
@@ -112,7 +113,7 @@ func decodeGREDatagram(datagram []byte, config runtimeConfig) (decodedGREDatagra
 		return decodedGREDatagram{}, errors.New("unsupported GRE version")
 	}
 	if flags&greRejectedFlags != 0 {
-		return decodedGREDatagram{}, errors.New("unsupported GRE routing, key, sequence, or recursion flags")
+		return decodedGREDatagram{}, errors.New("unsupported GRE optional-header or non-ignorable flags")
 	}
 	protocolType := binary.BigEndian.Uint16(grePacket[2:4])
 	greHeaderLen := 4

@@ -84,11 +84,15 @@ func (d *rawDevice) receiveLoop() {
 		if pollFDs[1].Revents != 0 || d.ctx.Err() != nil {
 			return
 		}
-		if pollFDs[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+		revents := pollFDs[0].Revents
+		if revents&(unix.POLLHUP|unix.POLLNVAL) != 0 {
 			d.logDrop("raw socket poll failure", nil)
 			return
 		}
-		if pollFDs[0].Revents&unix.POLLIN == 0 {
+		if revents&unix.POLLERR != 0 {
+			d.logSocketError()
+		}
+		if revents&unix.POLLIN == 0 {
 			continue
 		}
 		n, from, err := unix.Recvfrom(d.fd, bufferBytes, 0)
@@ -119,6 +123,19 @@ func (d *rawDevice) receiveLoop() {
 		d.endpoint.InjectInbound(decoded.networkProtocol, packet)
 		packet.DecRef()
 	}
+}
+
+func (d *rawDevice) logSocketError() {
+	socketError, err := unix.GetsockoptInt(d.fd, unix.SOL_SOCKET, unix.SO_ERROR)
+	if err != nil {
+		d.logDrop("inspect raw socket poll error", err)
+		return
+	}
+	if socketError == 0 {
+		d.logDrop("raw socket reported a recoverable poll error", nil)
+		return
+	}
+	d.logDrop("raw socket reported a recoverable error", syscall.Errno(socketError))
 }
 
 func (d *rawDevice) sendLoop() {

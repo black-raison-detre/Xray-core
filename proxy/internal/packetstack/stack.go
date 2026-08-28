@@ -134,8 +134,7 @@ func (s *Stack) writeRawUDPPacket(payload []byte, src, dst net.Destination) erro
 	defer pkt.DecRef()
 	udpHeader := header.UDP(pkt.TransportHeader().Push(header.UDPMinimumSize))
 	udpHeader.Encode(&header.UDPFields{SrcPort: uint16(src.Port), DstPort: uint16(dst.Port), Length: uint16(udpLen)})
-	xsum := header.PseudoHeaderChecksum(header.UDPProtocolNumber, srcIP, dstIP, uint16(udpLen))
-	udpHeader.SetChecksum(^udpHeader.CalculateChecksum(checksum.Checksum(payload, xsum)))
+	udpHeader.SetChecksum(calculateUDPChecksum(udpHeader, payload, srcIP, dstIP))
 	if ipProtocol == header.IPv4ProtocolNumber {
 		ipHeader := header.IPv4(pkt.NetworkHeader().Push(header.IPv4MinimumSize))
 		ipHeader.Encode(&header.IPv4Fields{TotalLength: uint16(header.IPv4MinimumSize + udpLen), TTL: 64, Protocol: uint8(header.UDPProtocolNumber), SrcAddr: srcIP, DstAddr: dstIP})
@@ -148,6 +147,15 @@ func (s *Stack) writeRawUDPPacket(payload []byte, src, dst net.Destination) erro
 		return errors.New("failed to write raw udp packet back to stack", err)
 	}
 	return nil
+}
+
+func calculateUDPChecksum(udpHeader header.UDP, payload []byte, srcIP, dstIP tcpip.Address) uint16 {
+	xsum := header.PseudoHeaderChecksum(header.UDPProtocolNumber, srcIP, dstIP, udpHeader.Length())
+	xsum = ^udpHeader.CalculateChecksum(checksum.Checksum(payload, xsum))
+	if xsum == 0 {
+		return 0xffff
+	}
+	return xsum
 }
 
 func (s *Stack) Close() error {

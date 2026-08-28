@@ -115,6 +115,7 @@ func TestGREDatagramRejectsMalformedAndSpoofedPackets(t *testing.T) {
 	}{
 		{name: "spoofed outer source", mutate: func(p []byte) { copy(p[12:16], netip.MustParseAddr("172.31.255.9").AsSlice()); rewriteIPv4Checksum(p) }, want: "endpoints"},
 		{name: "key flag", mutate: func(p []byte) { binary.BigEndian.PutUint16(p[20:22], 0x2000) }, want: "flags"},
+		{name: "non-ignorable reserved bit", mutate: func(p []byte) { binary.BigEndian.PutUint16(p[20:22], 0x0400) }, want: "flags"},
 		{name: "version one", mutate: func(p []byte) { binary.BigEndian.PutUint16(p[20:22], 1) }, want: "version"},
 		{name: "wrong protocol type", mutate: func(p []byte) { binary.BigEndian.PutUint16(p[22:24], greProtocolIPv6) }, want: "malformed inner IPv6"},
 		{name: "bad inner source", mutate: func(p []byte) {
