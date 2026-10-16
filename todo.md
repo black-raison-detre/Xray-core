@@ -1,3 +1,23 @@
+# Connection-stability backports (2026-10-16)
+
+Scope: selected fixes from upstream `main` at `da2248c5` onto `custom` at `14056780`. Defer the TUN stack rewrite, TLS trust defaults, new transports, Lua, and toolchain changes until an upstream release is selected for integration.
+
+- [x] Backport interface-binding failures aborting TCP/UDP dialing, including TUN controllers and missing-interface errors (`fe2ae23f`, #7173).
+- [x] Correct the paired Darwin TUN helper to apply only the socket family's binding option; propagating its previous IPv4 fallthrough error would reject valid IPv6 sockets. Add direct IPv4/IPv6 TCP/UDP socket coverage, including dual-stack and IPv6-only sockets.
+- [x] Backport Mux session initialization under the session-manager lock to prevent a dispatch/close race (`7da5dae6`, #6871).
+- [x] Backport Mux UDP reply source ownership so later frames cannot overwrite earlier buffers (`836a6fed`, #6822); retain support for a nil packet-reader destination.
+- [x] Confirm XHTTP already has equivalent synchronized reader publication and late-reader cleanup (`eef6e63b`, #6694); retain the custom implementation and add concurrent Set/Read/Close coverage.
+- [x] Confirm gRPC already dials with the reconnect context and resolved TCP destination (`9d9a7a1c`, #6877); no production change needed.
+- [x] Run focused race tests for Mux, socket dialing, XHTTP, gRPC, and TUN; rerun socket/TUN packages after review fixes.
+- [x] Build and launch the release-style Darwin/arm64 CLI; cross-compile socket/TUN tests for Windows/amd64 and Linux/amd64; build the RouterOS Linux/mipsle CLI with `routeros_gre`.
+- [x] Check formatting for all 924 tracked supported Go files and the new tests. The repository-wide vformat command reports only generated CodeQL dependency-cache files; leave those managed artifacts unchanged.
+- [x] Complete independent review of the working-tree backports and resolve the missing-interface and unsupported-platform test findings.
+- [x] Run `go test -timeout 1h -v ./...`: 90 packages passed; the full command exited 1. External AdGuard DNS-over-QUIC (`TestQUICNameServer`) and Cloudflare ECH (`TestECHDial`, DNS to `1.1.1.1:53`) failed. `TestAnyTLSTCP` also initially failed with local connection refused, then passed in isolation; the harness uses a fixed startup delay rather than listener readiness. Full log: `/private/tmp/xray-stability-full.log`.
+- [x] Rerun `TestAnyTLSTCP` alone and the TLS package with only `TestECHDial` skipped; both passed. The full-suite result remains a failure, despite these successful follow-up checks.
+- [x] Check the DNS package with the external `TestQUICNameServer` family skipped: the follow-up still exited 1 because `TestDOHNameServerWithCache` compared live DoH results containing the same IPs in a different order. Log: `/private/tmp/xray-stability-dns-retest.log`. DNS tests remain a validation limitation; no DNS implementation or tests were changed.
+
+Validation uses Go 1.27.1 on Darwin/arm64; `go.mod` remains at Go 1.26. Foreign-platform checks are compilation evidence, not runtime or live TUN proof.
+
 # Main branch sync follow-up
 
 Comparison baseline: `custom` and `main` diverged at `50231eaf`; reviewed `main` through `3af7f252` (2026-08-27).

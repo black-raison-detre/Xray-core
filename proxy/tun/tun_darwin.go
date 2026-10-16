@@ -594,19 +594,14 @@ func ioctlPtr(fd int, req uint, arg unsafe.Pointer) error {
 }
 
 func setinterface(network, address string, fd uintptr, iface *net.Interface) error {
-	var err1, err2 error
-
 	switch network {
 	case "tcp6", "udp6", "ip6":
-		err1 = unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_BOUND_IF, iface.Index)
-		fallthrough
+		return unix.SetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_BOUND_IF, iface.Index)
 	case "tcp4", "udp4", "ip4":
-		err2 = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_BOUND_IF, iface.Index)
+		return unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_BOUND_IF, iface.Index)
 	default:
 		panic(network + " " + address)
 	}
-
-	return errors.Join(err1, err2)
 }
 
 func findOutboundInterface(tunIndex int, fixedName string) (*net.Interface, error) {

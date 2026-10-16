@@ -28,3 +28,22 @@ func (v *SocketConfig) ParseTFOValue() int {
 	}
 	return tfo
 }
+
+// BindError identifies an error while binding a socket to an interface.
+// Dialers return this error from their control callback so the connection is
+// not attempted with a different interface.
+type BindError struct {
+	err error
+}
+
+func (e *BindError) Unwrap() error {
+	return e.err
+}
+
+func (e *BindError) Error() string {
+	return "failed to bind to interface: " + e.err.Error()
+}
+
+func NewBindError(err error) *BindError {
+	return &BindError{err: err}
+}

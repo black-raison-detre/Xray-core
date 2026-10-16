@@ -14,16 +14,20 @@ import (
 type PacketReader struct {
 	reader io.Reader
 	eof    bool
-	dest   *net.Destination
+	dest   net.Destination
 }
 
 // NewPacketReader creates a new PacketReader.
+// dest is copied because the caller reuses it for the next frame.
 func NewPacketReader(reader io.Reader, dest *net.Destination) *PacketReader {
-	return &PacketReader{
+	r := &PacketReader{
 		reader: reader,
 		eof:    false,
-		dest:   dest,
 	}
+	if dest != nil {
+		r.dest = *dest
+	}
+	return r
 }
 
 // ReadMultiBuffer implements buf.Reader.
@@ -47,8 +51,8 @@ func (r *PacketReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		return nil, err
 	}
 	r.eof = true
-	if r.dest != nil && r.dest.Network == net.Network_UDP {
-		b.UDP = r.dest
+	if r.dest.Network == net.Network_UDP {
+		b.UDP = &r.dest // only one packet is read, so b owns r.dest
 	}
 	return buf.MultiBuffer{b}, nil
 }
