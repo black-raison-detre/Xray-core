@@ -31,6 +31,41 @@ func TestWriter(t *testing.T) {
 	}
 }
 
+func TestBufferedWriterWriteExceedingBufferCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		prefixSize  int
+		payloadSize int
+	}{
+		{name: "empty buffer", payloadSize: Size + 1},
+		{name: "partially filled buffer", prefixSize: Size - 1, payloadSize: 2},
+		{name: "multiple flushes", prefixSize: 17, payloadSize: 2*Size + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			writer := NewBufferedWriter(NewWriter(&output))
+			prefix := bytes.Repeat([]byte{0xab}, tc.prefixSize)
+			if n, err := writer.Write(prefix); n != len(prefix) || err != nil {
+				t.Fatalf("prefix write = (%d, %v), want (%d, nil)", n, err, len(prefix))
+			}
+
+			payload := make([]byte, tc.payloadSize)
+			for i := range payload {
+				payload[i] = byte(i)
+			}
+			if n, err := writer.Write(payload); n != len(payload) || err != nil {
+				t.Fatalf("payload write = (%d, %v), want (%d, nil)", n, err, len(payload))
+			}
+			if err := writer.Flush(); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(output.Bytes(), append(prefix, payload...)) {
+				t.Fatal("output differs from the written prefix and payload")
+			}
+		})
+	}
+}
+
 func TestBytesWriterReadFrom(t *testing.T) {
 	const size = 50000
 	pReader, pWriter := pipe.New(pipe.WithSizeLimit(size))
