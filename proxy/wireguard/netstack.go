@@ -172,6 +172,7 @@ type Net struct {
 	DialUDPAddrPort        func(laddr, raddr netip.AddrPort) (net.Conn, error)
 	dnsServers             []netip.Addr
 	hasV4, hasV6           bool
+	domainStrategy         *DeviceConfig_DomainStrategy
 	cache                  cache
 }
 
@@ -712,6 +713,9 @@ func (tnet *Net) DialContext(ctx context.Context, network, address string) (net.
 			addrs = append(addrs, netip.AddrPortFrom(ip, uint16(port)))
 		}
 	}
+	if _, err := netip.ParseAddr(host); err != nil {
+		addrs = selectWireGuardDomainAddresses(addrs, tnet.domainStrategy)
+	}
 	if len(addrs) == 0 && len(allAddr) != 0 {
 		return nil, &net.OpError{Op: "dial", Err: errNoSuitableAddress}
 	}
@@ -767,6 +771,38 @@ func (tnet *Net) DialContext(ctx context.Context, network, address string) (net.
 		firstErr = &net.OpError{Op: "dial", Err: errMissingAddress}
 	}
 	return nil, firstErr
+}
+
+func selectWireGuardDomainAddresses(addrs []netip.AddrPort, strategy *DeviceConfig_DomainStrategy) []netip.AddrPort {
+	if strategy == nil || *strategy == DeviceConfig_FORCE_IP {
+		return addrs
+	}
+	var ipv4, ipv6 []netip.AddrPort
+	for _, addr := range addrs {
+		if addr.Addr().Is4() || addr.Addr().Is4In6() {
+			ipv4 = append(ipv4, addr)
+		} else if addr.Addr().Is6() {
+			ipv6 = append(ipv6, addr)
+		}
+	}
+	switch *strategy {
+	case DeviceConfig_FORCE_IP4:
+		return ipv4
+	case DeviceConfig_FORCE_IP6:
+		return ipv6
+	case DeviceConfig_FORCE_IP46:
+		if len(ipv4) > 0 {
+			return ipv4
+		}
+		return ipv6
+	case DeviceConfig_FORCE_IP64:
+		if len(ipv6) > 0 {
+			return ipv6
+		}
+		return ipv4
+	default:
+		return addrs
+	}
 }
 
 func (tnet *Net) Dial(network, address string) (net.Conn, error) {

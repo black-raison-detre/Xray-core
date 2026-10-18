@@ -59,13 +59,14 @@ func (c *WireGuardPeerConfig) Build() (*wireguard.PeerConfig, error) {
 type WireGuardConfig struct {
 	IsClient bool `json:""`
 
-	NoKernelTun bool                   `json:"noKernelTun"`
-	SecretKey   string                 `json:"secretKey"`
-	Address     []string               `json:"address"`
-	Peers       []*WireGuardPeerConfig `json:"peers"`
-	MTU         int32                  `json:"mtu"`
-	Reserved    []byte                 `json:"reserved"`
-	DNS         []string               `json:"remoteDNS"`
+	NoKernelTun    bool                   `json:"noKernelTun"`
+	SecretKey      string                 `json:"secretKey"`
+	Address        []string               `json:"address"`
+	Peers          []*WireGuardPeerConfig `json:"peers"`
+	MTU            int32                  `json:"mtu"`
+	Reserved       []byte                 `json:"reserved"`
+	DomainStrategy string                 `json:"domainStrategy,omitempty"`
+	DNS            []string               `json:"remoteDNS"`
 }
 
 func (c *WireGuardConfig) Build() (proto.Message, error) {
@@ -123,12 +124,37 @@ func (c *WireGuardConfig) Build() (proto.Message, error) {
 		return nil, errors.New(`"reserved" should be empty or 3 bytes`)
 	}
 	config.Reserved = c.Reserved
+	config.DomainStrategy, err = parseWireGuardDomainStrategy(c.DomainStrategy)
+	if err != nil {
+		return nil, err
+	}
 
 	config.IsClient = c.IsClient
 	config.NoKernelTun = c.NoKernelTun
 	config.DNS = c.DNS
 
 	return config, nil
+}
+
+func parseWireGuardDomainStrategy(value string) (*wireguard.DeviceConfig_DomainStrategy, error) {
+	var strategy wireguard.DeviceConfig_DomainStrategy
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return nil, nil
+	case "forceip":
+		strategy = wireguard.DeviceConfig_FORCE_IP
+	case "forceipv4":
+		strategy = wireguard.DeviceConfig_FORCE_IP4
+	case "forceipv6":
+		strategy = wireguard.DeviceConfig_FORCE_IP6
+	case "forceipv4v6":
+		strategy = wireguard.DeviceConfig_FORCE_IP46
+	case "forceipv6v4":
+		strategy = wireguard.DeviceConfig_FORCE_IP64
+	default:
+		return nil, errors.New("unsupported domain strategy: ", value)
+	}
+	return &strategy, nil
 }
 
 func ParseWireGuardKey(str string) (string, error) {

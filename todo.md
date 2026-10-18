@@ -20,6 +20,10 @@ Private behavior carried forward:
   enabled by default. Upstream TLS trust-store defaults remain in place.
 - Darwin socket-family binding correction and nil Mux packet-reader destination
   support that are still absent from the selected upstream release.
+- Presence-aware WireGuard `domainStrategy` compatibility for existing GUI
+  profiles. Omitting it preserves upstream defaults; explicit choices retain
+  the old family-selection behavior without changing DNS caching or socket
+  dialing settings.
 - Local `Makefile`, `build.bat`, contributor guidance, and regression coverage.
 
 Upstream-equivalent backports were not replayed. The upstream TUN implementation,
@@ -41,11 +45,24 @@ The GUI does not emit the removed `remoteDNS: ["local"]` mode.
 
 ## Validation and remaining integration
 
-- [ ] Run focused race tests and RouterOS-tagged package tests.
-- [ ] Run the full Go suite and distinguish external-service failures.
-- [ ] Build native CLI, Linux/Windows targets, and RouterOS Linux/mipsle.
-- [ ] Check formatting and obtain independent review of the staged port.
+- [x] Run focused race tests and RouterOS-tagged package tests.
+- [x] Run the full Go suite and distinguish external-service failures.
+- [x] Build native CLI, Linux/Windows targets, and RouterOS Linux/mipsle.
+- [x] Check formatting and obtain independent review of the staged port.
 - [ ] Update the paired GUI's vendored core/build input before claiming a
   packaged GUI contains this branch. The GUI repository is outside this port.
 - [ ] Validate live TUN/GRE behavior on the actual operating systems and router;
   host tests and cross-compilation do not establish runtime compatibility.
+
+Validation uses Go 1.27.1 on Darwin/arm64. The main port was tested from an
+exact staged export: formatting and affected package checks passed; the release
+CLI built for Darwin/arm64, Linux/amd64, Linux/arm64, Windows/amd64, and
+RouterOS Linux/mipsle (`routeros_gre`, soft-float). The native binary reported
+version 26.10.17. Foreign-platform builds are compile-only evidence.
+
+The full `go test -timeout 1h -v ./...` run exited 1. External
+`TestQUICNameServer` failed against AdGuard DNS, and `TestECHDial` failed after
+DNS to 1.1.1.1 timed out. Darwin process lookup tests also failed under the
+sandbox, then all of `./common/net` passed on a permitted rerun outside it.
+The full suite is not reported as passing. Full log:
+`/private/tmp/xray-migration-staged-full.log`.

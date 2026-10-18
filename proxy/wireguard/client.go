@@ -120,6 +120,7 @@ func NewClient(ctx context.Context, conf *DeviceConfig) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	tnet.domainStrategy = conf.DomainStrategy
 
 	blockup := newblockup(tun)
 	bind := &bind{}
@@ -139,7 +140,7 @@ func NewClient(ctx context.Context, conf *DeviceConfig) (*Handler, error) {
 	}
 	dev := device.NewDevice(blockup, bind, logger)
 	bind.ctx = context.Background()
-	bind.resolveFunc = MakeResolveLocal(d, streamSettings)
+	bind.resolveFunc = makeResolveLocal(d, streamSettings, conf.DomainStrategy)
 	bind.listenFunc = func(ctx context.Context) (net.PacketConn, error) {
 		dest, err := net.ParseDestination("udp:" + conf.Peers[0].Endpoint)
 		if err != nil {
@@ -324,6 +325,10 @@ func (h *Handler) up(ctx context.Context) error {
 }
 
 func MakeResolveLocal(d dns.Client, streamSettings *internet.MemoryStreamConfig) func(host string) (net.IP, error) {
+	return makeResolveLocal(d, streamSettings, nil)
+}
+
+func makeResolveLocal(d dns.Client, streamSettings *internet.MemoryStreamConfig, compatStrategy *DeviceConfig_DomainStrategy) func(host string) (net.IP, error) {
 	return func(host string) (net.IP, error) {
 		if ip := net.ParseIP(host); ip != nil {
 			return ip, nil
@@ -333,7 +338,14 @@ func MakeResolveLocal(d dns.Client, streamSettings *internet.MemoryStreamConfig)
 			return nil, err
 		}
 		got := ips
+		strategy := internet.DomainStrategy_AS_IS
 		if streamSettings.SocketSettings != nil {
+			strategy = streamSettings.SocketSettings.DomainStrategy
+		}
+		if compatStrategy != nil {
+			strategy = wireGuardDomainStrategyToInternet(*compatStrategy)
+		}
+		if strategy != internet.DomainStrategy_AS_IS && strategy != internet.DomainStrategy_USE_IP && strategy != internet.DomainStrategy_FORCE_IP {
 			var got4, got6 []net.IP
 			for _, ip := range ips {
 				if ip.To4() != nil {
@@ -342,9 +354,7 @@ func MakeResolveLocal(d dns.Client, streamSettings *internet.MemoryStreamConfig)
 					got6 = append(got6, ip)
 				}
 			}
-			switch streamSettings.SocketSettings.DomainStrategy {
-			case internet.DomainStrategy_AS_IS, internet.DomainStrategy_USE_IP, internet.DomainStrategy_FORCE_IP:
-				got = ips
+			switch strategy {
 			case internet.DomainStrategy_USE_IP4, internet.DomainStrategy_FORCE_IP4:
 				got = got4
 			case internet.DomainStrategy_USE_IP6, internet.DomainStrategy_FORCE_IP6:
@@ -359,12 +369,31 @@ func MakeResolveLocal(d dns.Client, streamSettings *internet.MemoryStreamConfig)
 				if len(got) == 0 {
 					got = got4
 				}
-			}
-			if len(got) == 0 {
-				return nil, dns.ErrEmptyResponse
+			default:
+				got = ips
 			}
 		}
+		if len(got) == 0 {
+			return nil, dns.ErrEmptyResponse
+		}
 		return got[dice.Roll(len(got))], nil
+	}
+}
+
+func wireGuardDomainStrategyToInternet(strategy DeviceConfig_DomainStrategy) internet.DomainStrategy {
+	switch strategy {
+	case DeviceConfig_FORCE_IP:
+		return internet.DomainStrategy_FORCE_IP
+	case DeviceConfig_FORCE_IP4:
+		return internet.DomainStrategy_FORCE_IP4
+	case DeviceConfig_FORCE_IP6:
+		return internet.DomainStrategy_FORCE_IP6
+	case DeviceConfig_FORCE_IP46:
+		return internet.DomainStrategy_FORCE_IP46
+	case DeviceConfig_FORCE_IP64:
+		return internet.DomainStrategy_FORCE_IP64
+	default:
+		return internet.DomainStrategy_AS_IS
 	}
 }
 
