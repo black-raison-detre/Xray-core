@@ -55,9 +55,16 @@ type flow struct {
 // what others send, see tcpConn. The tun may also be a tunnel to a system that is far away, and the stack
 // the one that opens the connections
 type stack struct {
-	ctx context.Context
-	tun Tun
-	mtu int
+	icmpEchoDelay   func() (time.Duration, bool)
+	icmpTimerAccess sync.Mutex
+	icmpTimers      map[uint64]*time.Timer
+	icmpNextTimerID uint64
+	icmpReplyCount  int
+	icmpClosing     bool
+	icmpReplyWG     sync.WaitGroup
+	ctx             context.Context
+	tun             Tun
+	mtu             int
 	// segmenter is the tun if it takes segments that are larger than its MTU
 	segmenter segmenter
 	// window is the window of every connection
@@ -114,6 +121,9 @@ func NewStack(ctx context.Context, options StackOptions, handler ConnectionHandl
 	for i := range s.identification {
 		s.identification[i].Store(rand.Uint32())
 	}
+	if probe, ok := handler.(interface{ icmpEchoDelay() (time.Duration, bool) }); ok {
+		s.icmpEchoDelay = probe.icmpEchoDelay
+	}
 	if handler != nil {
 		s.handle = handler.HandleConnection
 		s.udp = newUdpConnectionHandler(s.handle, s.writeUDP)
@@ -129,6 +139,7 @@ func (s *stack) Start() error {
 
 // Close is called by Handler to shut down the stack
 func (s *stack) Close() error {
+	s.stopICMPEchoReplies()
 	s.mu.Lock()
 	s.closed = true
 	conns := make([]*tcpConn, 0, len(s.conns))
@@ -577,6 +588,18 @@ func (s *stack) handleICMP(p packet) {
 		// a stack that takes no connections is one host, not all of them
 		return
 	}
+	delay := time.Duration(0)
+	if s.icmpEchoDelay != nil {
+		var available bool
+		delay, available = s.icmpEchoDelay()
+		if !available || delay < 0 || delay > maxICMPProbeDelay {
+			return
+		}
+		if delay > 0 {
+			// Input's packet belongs to the caller and may be reused as soon as it returns.
+			m = slices.Clone(m)
+		}
+	}
 	var b [ipv6HeaderSize]byte
 	n := putIPHeader(b[:], p.proto, p.dst, p.src)
 	// the reply is the request with another type
@@ -586,7 +609,11 @@ func (s *stack) handleICMP(p packet) {
 	} else {
 		binary.BigEndian.PutUint16(m[2:], checksum(sum(m, 0)))
 	}
-	_ = s.write(b[:n], m)
+	if delay == 0 {
+		_ = s.write(b[:n], m)
+	} else if !s.scheduleICMPEchoReply(delay, func() { _ = s.write(b[:n], m) }) {
+		errors.LogDebug(s.ctx, "[tun][icmp] delayed reply queue unavailable; dropping echo request")
+	}
 }
 
 // undelivered takes the start of a packet that was sent from here and did not get to where it goes. If it did not fit

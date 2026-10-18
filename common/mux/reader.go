@@ -20,11 +20,14 @@ type PacketReader struct {
 // NewPacketReader creates a new PacketReader.
 // dest is copied because the caller reuses it for the next frame.
 func NewPacketReader(reader io.Reader, dest *net.Destination) *PacketReader {
-	return &PacketReader{
+	r := &PacketReader{
 		reader: reader,
 		eof:    false,
-		dest:   *dest,
 	}
+	if dest != nil {
+		r.dest = *dest
+	}
+	return r
 }
 
 // ReadMultiBuffer implements buf.Reader.

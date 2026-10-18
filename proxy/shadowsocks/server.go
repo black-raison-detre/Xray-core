@@ -36,6 +36,10 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 		if err != nil {
 			return nil, errors.New("failed to get shadowsocks user").Base(err)
 		}
+		account, ok := u.Account.(*MemoryAccount)
+		if !ok || !account.Cipher.IsAEAD() {
+			return nil, errors.New("legacy Shadowsocks ciphers are outbound-only")
+		}
 
 		if err := validator.Add(u); err != nil {
 			return nil, errors.New("failed to add user").Base(err)
@@ -55,6 +59,10 @@ func NewServer(ctx context.Context, config *ServerConfig) (*Server, error) {
 
 // AddUser implements proxy.UserManager.AddUser().
 func (s *Server) AddUser(ctx context.Context, u *protocol.MemoryUser) error {
+	account, ok := u.Account.(*MemoryAccount)
+	if !ok || !account.Cipher.IsAEAD() {
+		return errors.New("legacy Shadowsocks ciphers are outbound-only")
+	}
 	return s.validator.Add(u)
 }
 

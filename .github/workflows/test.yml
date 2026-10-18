@@ -80,3 +80,6 @@ jobs:
           enableCrossOsArchive: true
       - name: Test
         run: go test -timeout 1h -v ./...
+      - name: Test RouterOS GRE build tag
+        if: runner.os == 'Linux'
+        run: BUILD_TAGS=routeros_gre TEST_PACKAGES="./proxy/gre ./proxy/internal/packetstack ./infra/conf" make test

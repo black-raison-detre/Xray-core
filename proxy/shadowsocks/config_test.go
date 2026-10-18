@@ -10,6 +10,24 @@ import (
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 )
 
+func TestHistoricalLegacyCipherNumbers(t *testing.T) {
+	values := map[shadowsocks.CipherType]int32{
+		shadowsocks.CipherType_AES_128_CFB:        1,
+		shadowsocks.CipherType_AES_256_CFB:        2,
+		shadowsocks.CipherType_CHACHA20:           3,
+		shadowsocks.CipherType_CHACHA20_IETF:      4,
+		shadowsocks.CipherType_AES_128_GCM:        5,
+		shadowsocks.CipherType_AES_256_GCM:        6,
+		shadowsocks.CipherType_CHACHA20_POLY1305:  7,
+		shadowsocks.CipherType_XCHACHA20_POLY1305: 8,
+	}
+	for cipherType, want := range values {
+		if int32(cipherType) != want {
+			t.Fatalf("%v = %d, want %d", cipherType, cipherType, want)
+		}
+	}
+}
+
 func TestAEADCipherUDP(t *testing.T) {
 	rawAccount := &shadowsocks.Account{
 		CipherType: shadowsocks.CipherType_AES_128_GCM,

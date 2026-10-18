@@ -3,6 +3,7 @@ package tls_test
 import (
 	gotls "crypto/tls"
 	"crypto/x509"
+	"net"
 	"testing"
 	"time"
 
@@ -95,5 +96,50 @@ func BenchmarkCertificateIssuing(b *testing.B) {
 		})
 		delete(tlsConfig.NameToCertificate, "www.example.com")
 		tlsConfig.Certificates = tlsConfig.Certificates[:lenCerts]
+	}
+}
+
+func TestAllowInsecure(t *testing.T) {
+	certificate, _ := cert.MustGenerate(nil, cert.CommonName("example.com"), cert.DNSNames("example.com"))
+	certPEM, keyPEM := certificate.ToPEM()
+	keyPair, err := gotls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := func(config *gotls.Config) error {
+		config.MaxVersion = gotls.VersionTLS12
+		clientRaw, serverRaw := net.Pipe()
+		client := gotls.Client(clientRaw, config)
+		server := gotls.Server(serverRaw, &gotls.Config{
+			Certificates:           []gotls.Certificate{keyPair},
+			MaxVersion:             gotls.VersionTLS12,
+			SessionTicketsDisabled: true,
+		})
+		serverDone := make(chan error, 1)
+		go func() { serverDone <- server.Handshake() }()
+		err := client.Handshake()
+		_ = clientRaw.Close()
+		_ = serverRaw.Close()
+		<-serverDone
+		return err
+	}
+
+	verified := (&Config{ServerName: "example.com"}).GetTLSConfig()
+	if verified.InsecureSkipVerify {
+		t.Fatal("certificate verification is disabled by default")
+	}
+	if err := handshake(verified); err == nil {
+		t.Fatal("default verification accepted an untrusted certificate")
+	}
+
+	insecure := (&Config{AllowInsecure: true, ServerName: "example.com"}).GetTLSConfig()
+	if !insecure.InsecureSkipVerify {
+		t.Fatal("allowInsecure did not disable certificate verification")
+	}
+	if insecure.ServerName != "example.com" {
+		t.Fatalf("serverName = %q", insecure.ServerName)
+	}
+	if err := handshake(insecure); err != nil {
+		t.Fatalf("allowInsecure rejected an untrusted certificate: %v", err)
 	}
 }

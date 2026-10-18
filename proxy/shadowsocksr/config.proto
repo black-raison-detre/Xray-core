@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package xray.proxy.shadowsocksr;
+option csharp_namespace = "Xray.Proxy.ShadowsocksR";
+option go_package = "github.com/xtls/xray-core/proxy/shadowsocksr";
+option java_package = "com.xray.proxy.shadowsocksr";
+option java_multiple_files = true;
+
+import "common/protocol/server_spec.proto";
+
+message Account {
+  string password = 1;
+  string method = 2;
+  string protocol = 3;
+  bytes protocol_param = 4;
+  string obfs = 5;
+  bytes obfs_param = 6;
+}
+
+message ClientConfig {
+  xray.common.protocol.ServerEndpoint server = 1;
+}

@@ -19,10 +19,33 @@ message Account {
 
 enum CipherType {
   UNKNOWN = 0;
+  AES_128_CFB = 1;
+  AES_256_CFB = 2;
+  CHACHA20 = 3;
+  CHACHA20_IETF = 4;
   AES_128_GCM = 5;
   AES_256_GCM = 6;
   CHACHA20_POLY1305 = 7;
   XCHACHA20_POLY1305 = 8;
+  NONE = 9;
+  TABLE = 10;
+  RC4 = 11;
+  RC4_MD5_6 = 12;
+  RC4_MD5 = 13;
+  AES_192_CFB = 14;
+  AES_128_CTR = 15;
+  AES_192_CTR = 16;
+  AES_256_CTR = 17;
+  BF_CFB = 18;
+  CAMELLIA_128_CFB = 19;
+  CAMELLIA_192_CFB = 20;
+  CAMELLIA_256_CFB = 21;
+  CAST5_CFB = 22;
+  DES_CFB = 23;
+  IDEA_CFB = 24;
+  RC2_CFB = 25;
+  SEED_CFB = 26;
+  SALSA20 = 27;
 }
 
 message ServerConfig {

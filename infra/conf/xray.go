@@ -25,6 +25,9 @@ import (
 )
 
 var (
+	noListenerInboundProtocols = map[string]bool{}
+	strictPseudoInbounds       = map[string]bool{}
+
 	inboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
 		"tunnel":        func() interface{} { return new(DokodemoConfig) },
 		"dokodemo-door": func() interface{} { return new(DokodemoConfig) },
@@ -35,28 +38,30 @@ var (
 		"vless":         func() interface{} { return new(VLessInboundConfig) },
 		"vmess":         func() interface{} { return new(VMessInboundConfig) },
 		"trojan":        func() interface{} { return new(TrojanServerConfig) },
+		"anytls":        func() interface{} { return new(AnyTLSServerConfig) },
 		"wireguard":     func() interface{} { return &WireGuardConfig{IsClient: false} },
 		"hysteria":      func() interface{} { return new(HysteriaServerConfig) },
 		"masque":        func() interface{} { return new(MasqueServerConfig) },
-		"tun":           func() interface{} { return new(TunConfig) },
 	}, "protocol", "settings")
 
 	outboundConfigLoader = NewJSONConfigLoader(ConfigCreatorCache{
-		"block":       func() interface{} { return new(BlackholeConfig) },
-		"blackhole":   func() interface{} { return new(BlackholeConfig) },
-		"loopback":    func() interface{} { return new(LoopbackConfig) },
-		"direct":      func() interface{} { return new(FreedomConfig) },
-		"freedom":     func() interface{} { return new(FreedomConfig) },
-		"http":        func() interface{} { return new(HTTPClientConfig) },
-		"shadowsocks": func() interface{} { return new(ShadowsocksClientConfig) },
-		"socks":       func() interface{} { return new(SocksClientConfig) },
-		"vless":       func() interface{} { return new(VLessOutboundConfig) },
-		"vmess":       func() interface{} { return new(VMessOutboundConfig) },
-		"trojan":      func() interface{} { return new(TrojanClientConfig) },
-		"hysteria":    func() interface{} { return new(HysteriaClientConfig) },
-		"masque":      func() interface{} { return new(MasqueClientConfig) },
-		"dns":         func() interface{} { return new(DNSOutboundConfig) },
-		"wireguard":   func() interface{} { return &WireGuardConfig{IsClient: true} },
+		"block":        func() interface{} { return new(BlackholeConfig) },
+		"blackhole":    func() interface{} { return new(BlackholeConfig) },
+		"loopback":     func() interface{} { return new(LoopbackConfig) },
+		"direct":       func() interface{} { return new(FreedomConfig) },
+		"freedom":      func() interface{} { return new(FreedomConfig) },
+		"http":         func() interface{} { return new(HTTPClientConfig) },
+		"shadowsocks":  func() interface{} { return new(ShadowsocksClientConfig) },
+		"shadowsocksr": func() interface{} { return new(ShadowsocksRClientConfig) },
+		"socks":        func() interface{} { return new(SocksClientConfig) },
+		"vless":        func() interface{} { return new(VLessOutboundConfig) },
+		"vmess":        func() interface{} { return new(VMessOutboundConfig) },
+		"trojan":       func() interface{} { return new(TrojanClientConfig) },
+		"anytls":       func() interface{} { return new(AnyTLSClientConfig) },
+		"hysteria":     func() interface{} { return new(HysteriaClientConfig) },
+		"masque":       func() interface{} { return new(MasqueClientConfig) },
+		"dns":          func() interface{} { return new(DNSOutboundConfig) },
+		"wireguard":    func() interface{} { return &WireGuardConfig{IsClient: true} },
 	}, "protocol", "settings")
 )
 
@@ -145,9 +150,12 @@ type InboundDetourConfig struct {
 func (c *InboundDetourConfig) Build() (*core.InboundHandlerConfig, error) {
 	receiverSettings := &proxyman.ReceiverConfig{}
 
-	// TUN inbound doesn't need port configuration as it uses network interface instead
-	if strings.ToLower(c.Protocol) == "tun" {
-		// Skip port validation for TUN
+	protocolName := strings.ToLower(c.Protocol)
+	// Pseudo inbounds own their packet source and don't listen on a transport port.
+	if noListenerInboundProtocols[protocolName] {
+		if strictPseudoInbounds[protocolName] && (c.PortList != nil || c.ListenOn != nil || c.StreamSetting != nil) {
+			return nil, errors.New(c.Protocol, " inbound does not accept listen, port, or streamSettings")
+		}
 	} else if c.ListenOn == nil || len(c.ListenOn.String()) == 0 {
 		// Listen on anyip, must set PortList
 		if c.PortList == nil {
@@ -186,6 +194,10 @@ func (c *InboundDetourConfig) Build() (*core.InboundHandlerConfig, error) {
 			len(receiverSettings.PortList.Ports()) != 1 || receiverSettings.PortList.Ports()[0] != 443) {
 			errors.LogWarning(context.Background(), `REALITY: Listening on non-443 ports will increase the likelihood of your server's IP being blocked by the GFW`)
 		}
+	}
+	if strings.EqualFold(c.Protocol, "anytls") && (c.StreamSetting == nil ||
+		(strings.ToLower(c.StreamSetting.Security) != "tls" && strings.ToLower(c.StreamSetting.Security) != "reality")) {
+		return nil, errors.New("AnyTLS inbound requires TLS or REALITY stream security")
 	}
 	if c.SniffingConfig != nil {
 		s, err := c.SniffingConfig.Build()
@@ -350,6 +362,14 @@ func (c *OutboundDetourConfig) Build() (*core.OutboundHandlerConfig, error) {
 		senderSettings.TargetStrategy = internet.DomainStrategy_FORCE_IP64
 	default:
 		return nil, errors.New("unsupported target domain strategy: ", c.TargetStrategy)
+	}
+	if strings.EqualFold(c.Protocol, "anytls") {
+		if c.StreamSetting == nil || (strings.ToLower(c.StreamSetting.Security) != "tls" && strings.ToLower(c.StreamSetting.Security) != "reality") {
+			return nil, errors.New("AnyTLS outbound requires TLS or REALITY stream security")
+		}
+		if c.MuxSettings != nil && c.MuxSettings.Enabled {
+			return nil, errors.New("AnyTLS outbound does not support mux.enabled")
+		}
 	}
 
 	if c.SendThrough != nil {

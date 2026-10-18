@@ -1,3 +1,5 @@
+//go:build !routeros_gre
+
 package conf
 
 import (
@@ -16,6 +18,7 @@ import (
 )
 
 type TunConfig struct {
+	ICMPMode               string   `json:"icmpMode"`
 	Name                   string   `json:"name"`
 	Desc                   string   `json:"desc"`
 	MTU                    uint32   `json:"mtu"`
@@ -69,6 +72,15 @@ func (v *TunConfig) Build() (proto.Message, error) {
 	}
 	if len(v.AutoSystemRoutingTable) > 0 && v.AutoOutboundsInterface == nil {
 		config.AutoOutboundsInterface = "auto"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(v.ICMPMode)) {
+	case "", "fake":
+		config.IcmpMode = tun.IcmpMode_FAKE
+	case "probe":
+		config.IcmpMode = tun.IcmpMode_PROBE
+	default:
+		return nil, errors.New("unknown TUN ICMP mode: ", v.ICMPMode)
 	}
 
 	if config.Name == "" {

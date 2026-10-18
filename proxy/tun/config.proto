@@ -6,6 +6,11 @@ option go_package = "github.com/xtls/xray-core/proxy/tun";
 option java_package = "com.xray.proxy.tun";
 option java_multiple_files = true;
 
+enum IcmpMode {
+  FAKE = 0;
+  PROBE = 1;
+}
+
 message Config {
   string name = 1;
   uint32 MTU = 2;
@@ -17,4 +22,5 @@ message Config {
   string desc = 8;
   bool auto_system_dns_to_gateway = 9;
   repeated string auto_system_wfp_block_leak = 10;
+  IcmpMode icmp_mode = 11;
 }

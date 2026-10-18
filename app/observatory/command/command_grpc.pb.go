@@ -19,7 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ObservatoryService_GetOutboundStatus_FullMethodName = "/xray.core.app.observatory.command.ObservatoryService/GetOutboundStatus"
+	ObservatoryService_GetOutboundStatus_FullMethodName        = "/xray.core.app.observatory.command.ObservatoryService/GetOutboundStatus"
+	ObservatoryService_TestOutboundCapabilities_FullMethodName = "/xray.core.app.observatory.command.ObservatoryService/TestOutboundCapabilities"
+	ObservatoryService_TestResolverReachability_FullMethodName = "/xray.core.app.observatory.command.ObservatoryService/TestResolverReachability"
 )
 
 // ObservatoryServiceClient is the client API for ObservatoryService service.
@@ -27,6 +29,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ObservatoryServiceClient interface {
 	GetOutboundStatus(ctx context.Context, in *GetOutboundStatusRequest, opts ...grpc.CallOption) (*GetOutboundStatusResponse, error)
+	TestOutboundCapabilities(ctx context.Context, in *TestOutboundCapabilitiesRequest, opts ...grpc.CallOption) (*TestOutboundCapabilitiesResponse, error)
+	TestResolverReachability(ctx context.Context, in *TestResolverReachabilityRequest, opts ...grpc.CallOption) (*TestResolverReachabilityResponse, error)
 }
 
 type observatoryServiceClient struct {
@@ -47,11 +51,33 @@ func (c *observatoryServiceClient) GetOutboundStatus(ctx context.Context, in *Ge
 	return out, nil
 }
 
+func (c *observatoryServiceClient) TestOutboundCapabilities(ctx context.Context, in *TestOutboundCapabilitiesRequest, opts ...grpc.CallOption) (*TestOutboundCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestOutboundCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, ObservatoryService_TestOutboundCapabilities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *observatoryServiceClient) TestResolverReachability(ctx context.Context, in *TestResolverReachabilityRequest, opts ...grpc.CallOption) (*TestResolverReachabilityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestResolverReachabilityResponse)
+	err := c.cc.Invoke(ctx, ObservatoryService_TestResolverReachability_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ObservatoryServiceServer is the server API for ObservatoryService service.
 // All implementations must embed UnimplementedObservatoryServiceServer
 // for forward compatibility.
 type ObservatoryServiceServer interface {
 	GetOutboundStatus(context.Context, *GetOutboundStatusRequest) (*GetOutboundStatusResponse, error)
+	TestOutboundCapabilities(context.Context, *TestOutboundCapabilitiesRequest) (*TestOutboundCapabilitiesResponse, error)
+	TestResolverReachability(context.Context, *TestResolverReachabilityRequest) (*TestResolverReachabilityResponse, error)
 	mustEmbedUnimplementedObservatoryServiceServer()
 }
 
@@ -64,6 +90,12 @@ type UnimplementedObservatoryServiceServer struct{}
 
 func (UnimplementedObservatoryServiceServer) GetOutboundStatus(context.Context, *GetOutboundStatusRequest) (*GetOutboundStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOutboundStatus not implemented")
+}
+func (UnimplementedObservatoryServiceServer) TestOutboundCapabilities(context.Context, *TestOutboundCapabilitiesRequest) (*TestOutboundCapabilitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestOutboundCapabilities not implemented")
+}
+func (UnimplementedObservatoryServiceServer) TestResolverReachability(context.Context, *TestResolverReachabilityRequest) (*TestResolverReachabilityResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestResolverReachability not implemented")
 }
 func (UnimplementedObservatoryServiceServer) mustEmbedUnimplementedObservatoryServiceServer() {}
 func (UnimplementedObservatoryServiceServer) testEmbeddedByValue()                            {}
@@ -104,6 +136,42 @@ func _ObservatoryService_GetOutboundStatus_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ObservatoryService_TestOutboundCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestOutboundCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ObservatoryServiceServer).TestOutboundCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ObservatoryService_TestOutboundCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ObservatoryServiceServer).TestOutboundCapabilities(ctx, req.(*TestOutboundCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ObservatoryService_TestResolverReachability_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestResolverReachabilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ObservatoryServiceServer).TestResolverReachability(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ObservatoryService_TestResolverReachability_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ObservatoryServiceServer).TestResolverReachability(ctx, req.(*TestResolverReachabilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ObservatoryService_ServiceDesc is the grpc.ServiceDesc for ObservatoryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +182,14 @@ var ObservatoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetOutboundStatus",
 			Handler:    _ObservatoryService_GetOutboundStatus_Handler,
+		},
+		{
+			MethodName: "TestOutboundCapabilities",
+			Handler:    _ObservatoryService_TestOutboundCapabilities_Handler,
+		},
+		{
+			MethodName: "TestResolverReachability",
+			Handler:    _ObservatoryService_TestResolverReachability_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

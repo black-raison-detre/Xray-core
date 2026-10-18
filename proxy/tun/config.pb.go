@@ -21,6 +21,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type IcmpMode int32
+
+const (
+	IcmpMode_FAKE  IcmpMode = 0
+	IcmpMode_PROBE IcmpMode = 1
+)
+
+// Enum value maps for IcmpMode.
+var (
+	IcmpMode_name = map[int32]string{
+		0: "FAKE",
+		1: "PROBE",
+	}
+	IcmpMode_value = map[string]int32{
+		"FAKE":  0,
+		"PROBE": 1,
+	}
+)
+
+func (x IcmpMode) Enum() *IcmpMode {
+	p := new(IcmpMode)
+	*p = x
+	return p
+}
+
+func (x IcmpMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (IcmpMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_proxy_tun_config_proto_enumTypes[0].Descriptor()
+}
+
+func (IcmpMode) Type() protoreflect.EnumType {
+	return &file_proxy_tun_config_proto_enumTypes[0]
+}
+
+func (x IcmpMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use IcmpMode.Descriptor instead.
+func (IcmpMode) EnumDescriptor() ([]byte, []int) {
+	return file_proxy_tun_config_proto_rawDescGZIP(), []int{0}
+}
+
 type Config struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	Name                   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -33,6 +79,7 @@ type Config struct {
 	Desc                   string                 `protobuf:"bytes,8,opt,name=desc,proto3" json:"desc,omitempty"`
 	AutoSystemDnsToGateway bool                   `protobuf:"varint,9,opt,name=auto_system_dns_to_gateway,json=autoSystemDnsToGateway,proto3" json:"auto_system_dns_to_gateway,omitempty"`
 	AutoSystemWfpBlockLeak []string               `protobuf:"bytes,10,rep,name=auto_system_wfp_block_leak,json=autoSystemWfpBlockLeak,proto3" json:"auto_system_wfp_block_leak,omitempty"`
+	IcmpMode               IcmpMode               `protobuf:"varint,11,opt,name=icmp_mode,json=icmpMode,proto3,enum=xray.proxy.tun.IcmpMode" json:"icmp_mode,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -137,11 +184,18 @@ func (x *Config) GetAutoSystemWfpBlockLeak() []string {
 	return nil
 }
 
+func (x *Config) GetIcmpMode() IcmpMode {
+	if x != nil {
+		return x.IcmpMode
+	}
+	return IcmpMode_FAKE
+}
+
 var File_proxy_tun_config_proto protoreflect.FileDescriptor
 
 const file_proxy_tun_config_proto_rawDesc = "" +
 	"\n" +
-	"\x16proxy/tun/config.proto\x12\x0exray.proxy.tun\"\xfa\x02\n" +
+	"\x16proxy/tun/config.proto\x12\x0exray.proxy.tun\"\xb1\x03\n" +
 	"\x06Config\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03MTU\x18\x02 \x01(\rR\x03MTU\x12\x18\n" +
@@ -154,7 +208,11 @@ const file_proxy_tun_config_proto_rawDesc = "" +
 	"\x04desc\x18\b \x01(\tR\x04desc\x12:\n" +
 	"\x1aauto_system_dns_to_gateway\x18\t \x01(\bR\x16autoSystemDnsToGateway\x12:\n" +
 	"\x1aauto_system_wfp_block_leak\x18\n" +
-	" \x03(\tR\x16autoSystemWfpBlockLeakBL\n" +
+	" \x03(\tR\x16autoSystemWfpBlockLeak\x125\n" +
+	"\ticmp_mode\x18\v \x01(\x0e2\x18.xray.proxy.tun.IcmpModeR\bicmpMode*\x1f\n" +
+	"\bIcmpMode\x12\b\n" +
+	"\x04FAKE\x10\x00\x12\t\n" +
+	"\x05PROBE\x10\x01BL\n" +
 	"\x12com.xray.proxy.tunP\x01Z#github.com/xtls/xray-core/proxy/tun\xaa\x02\x0eXray.Proxy.Tunb\x06proto3"
 
 var (
@@ -169,16 +227,19 @@ func file_proxy_tun_config_proto_rawDescGZIP() []byte {
 	return file_proxy_tun_config_proto_rawDescData
 }
 
+var file_proxy_tun_config_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_proxy_tun_config_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_proxy_tun_config_proto_goTypes = []any{
-	(*Config)(nil), // 0: xray.proxy.tun.Config
+	(IcmpMode)(0),  // 0: xray.proxy.tun.IcmpMode
+	(*Config)(nil), // 1: xray.proxy.tun.Config
 }
 var file_proxy_tun_config_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: xray.proxy.tun.Config.icmp_mode:type_name -> xray.proxy.tun.IcmpMode
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_proxy_tun_config_proto_init() }
@@ -191,13 +252,14 @@ func file_proxy_tun_config_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proxy_tun_config_proto_rawDesc), len(file_proxy_tun_config_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_proxy_tun_config_proto_goTypes,
 		DependencyIndexes: file_proxy_tun_config_proto_depIdxs,
+		EnumInfos:         file_proxy_tun_config_proto_enumTypes,
 		MessageInfos:      file_proxy_tun_config_proto_msgTypes,
 	}.Build()
 	File_proxy_tun_config_proto = out.File

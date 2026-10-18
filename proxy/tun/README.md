@@ -344,3 +344,22 @@ Build using gomobile for iOS framework integration:
 ```
 gomobile bind -target=ios
 ```
+
+## Private ICMP modes
+
+This custom build accepts `icmpMode` in TUN inbound settings:
+
+- `fake` (the default) answers ICMP echo requests immediately.
+- `probe` answers using the lowest nonnegative cached delay of an alive
+  Observatory outbound. It requires a configured Observatory and sends no
+  additional active probe for an echo request. Missing observations, dead
+  outbounds, or delays above 30 seconds produce no reply.
+
+Probe mode synthesizes an echo reply with that cached delay; it does not measure
+connectivity to the ping destination. Delayed replies are limited to 256 per
+stack, and pending replies are cancelled when the stack closes.
+
+The JSON key remains `icmpMode`. In this v26.10.17 custom build its protobuf
+field is 11; upstream DNS and Windows leak-control fields retain numbers 9 and
+10. Regenerate old custom binary protobuf configs from JSON before using them
+with this branch.
