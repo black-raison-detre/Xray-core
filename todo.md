@@ -1,3 +1,23 @@
+# Bugfix-only maintenance (2026-10-19)
+
+Scope: maintain `v26.7.11-custom` at `075ec011` with selected upstream correctness fixes only. Older feature-port and behavior-change tasks below are deferred and require separate authorization; do not merge upstream functionality, TUN rewrites, TLS trust defaults, Lua, or dependency/toolchain migrations as part of this maintenance.
+
+- [x] Windows ReadV: wait for runtime socket readability before synchronous `WSARecv`, resetting readiness on every multi-buffer read (`ccb69ea5`, #6743). Add a Windows-only idle-read deadline regression with a preceding multi-buffer read.
+- [x] Hysteria: make TCP/UDP client-lock waits and authentication honor cancellation, close failed authentication resources, and keep successful connections reusable (`7c2e05dc`, #7119). Preserve the older client lifecycle without importing stopped-instance tracking.
+- [x] Hysteria: snapshot the client map before waiting for per-client cleanup so unrelated client creation can proceed (`2bea2df6`, #7122). Add cancellation, local HTTP/3 authentication, connection-lifecycle, and cleanup-lock regressions.
+- [x] QUIC sniffing: skip zero-filled tails between cached datagrams, retaining incomplete ClientHello data and domain recovery across padded packets (`5121c28b`, #6882). Reuse the existing QUICv1 fixture without importing the QUICv2 parser refactor.
+- [x] Complete independent working-tree review of all six implementation/test files; no actionable findings.
+- [x] Run Hysteria race tests: `go test -race -count=1 -timeout 2m ./transport/internet/hysteria` passed. Log: `/private/tmp/xray-bugfix-hysteria-race.log`.
+
+- [x] Confirm both new QUIC padding regressions fail against the original parser using a Go overlay, then pass with the fix. Logs: `/private/tmp/xray-bugfix-quic-baseline.log`, `/private/tmp/xray-bugfix-buf-quic-race.log`.
+- [x] Run buffer/QUIC race tests: `go test -race -count=1 -timeout 2m ./common/buf ./common/protocol/quic` passed.
+- [x] Cross-compile all three affected packages' tests for Windows/amd64 and build/launch the release-style Darwin/arm64 CLI. Logs: `/private/tmp/xray-bugfix-windows-build.log`, `/private/tmp/xray-bugfix-build.log`.
+
+- [x] Run `go test -timeout 1h -v ./...`: the command exited 1. Changed packages passed; `app/dns/TestQUICNameServer` failed after AdGuard DNS-over-QUIC returned no answer, `transport/internet/tls/TestECHDial` failed after DNS to `1.1.1.1:53` timed out and left an invalid ECH config, and five Darwin process-lookup tests were denied process enumeration by the sandbox. Log: `/private/tmp/xray-bugfix-full.log`.
+- [x] Rerun the five failed Darwin process-lookup tests outside the sandbox; all passed. Log: `/private/tmp/xray-bugfix-darwin-process-retest.log`. The full-suite result remains a failure; external DNS/ECH tests were not changed.
+
+Native Windows runtime validation is unavailable on this Darwin host; Windows results are compilation evidence only. Validation uses Go 1.27.1; the module remains at Go 1.26 with unchanged dependencies.
+
 # Connection-stability backports (2026-10-16)
 
 Scope: selected fixes from upstream `main` at `da2248c5` onto `custom` at `14056780`. Defer the TUN stack rewrite, TLS trust defaults, new transports, Lua, and toolchain changes until an upstream release is selected for integration.
