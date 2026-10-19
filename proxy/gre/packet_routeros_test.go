@@ -33,8 +33,8 @@ func TestGREDatagramRoundTrip(t *testing.T) {
 			if decoded.keepaliveReply != nil {
 				t.Fatal("ordinary packet was classified as a keepalive")
 			}
-			if decoded.networkProtocol != header.IPv4ProtocolNumber {
-				t.Fatalf("network protocol = %d", decoded.networkProtocol)
+			if decoded.innerPacket[0]>>4 != 4 {
+				t.Fatalf("network protocol = %d", decoded.innerPacket[0]>>4)
 			}
 			if string(got) != string(inner) {
 				t.Fatal("inner packet changed during decode")
@@ -162,8 +162,8 @@ func TestIPv6GREDatagramRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if decoded.networkProtocol != header.IPv6ProtocolNumber || string(decoded.innerPacket) != string(inner) {
-					t.Fatalf("decoded IPv6 packet changed: protocol=%d", decoded.networkProtocol)
+				if decoded.innerPacket[0]>>4 != 6 || string(decoded.innerPacket) != string(inner) {
+					t.Fatalf("decoded IPv6 packet changed: protocol=%d", decoded.innerPacket[0]>>4)
 				}
 				encoded, err := encodeGREPacket(decoded.innerPacket, config.mtu)
 				if err != nil {
@@ -192,8 +192,8 @@ func TestIPv6GREDatagramAcceptsFragments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("fragment %d: %v", index, err)
 		}
-		if decoded.networkProtocol != header.IPv6ProtocolNumber {
-			t.Fatalf("fragment %d protocol = %d", index, decoded.networkProtocol)
+		if decoded.innerPacket[0]>>4 != 6 {
+			t.Fatalf("fragment %d protocol = %d", index, decoded.innerPacket[0]>>4)
 		}
 	}
 }

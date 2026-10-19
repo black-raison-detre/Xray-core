@@ -83,16 +83,8 @@ func parsePacket(b []byte, rest int) (p packet, ok bool) {
 		p.src = netip.AddrFrom16([16]byte(b[8:24]))
 		p.dst = netip.AddrFrom16([16]byte(b[24:40]))
 		p.payload, p.rest = b[ipv6HeaderSize:min(total, len(b))], max(total-len(b), 0)
-		// hop-by-hop options, routing, destination options
-		for p.proto == 0 || p.proto == 43 || p.proto == 60 {
-			if len(p.payload) < 8 {
-				return p, false
-			}
-			size := int(p.payload[1])*8 + 8
-			if size > len(p.payload) {
-				return p, false
-			}
-			p.proto, p.payload = p.payload[0], p.payload[size:]
+		if !p.skipIPv6Extensions() {
+			return p, false
 		}
 		if p.proto == protoFragment {
 			f := p.payload
@@ -106,6 +98,25 @@ func parsePacket(b []byte, rest int) (p packet, ok bool) {
 		return p, false
 	}
 	return p, true
+}
+
+// skipIPv6Extensions also applies after reassembly: destination options can be
+// part of the fragmentable payload, after the fragment header.
+func (p *packet) skipIPv6Extensions() bool {
+	for p.proto == 0 || p.proto == 43 || p.proto == 60 || p.proto == 253 {
+		if len(p.payload) < 8 {
+			return false
+		}
+		size := int(p.payload[1])*8 + 8
+		if p.proto == 253 {
+			size = 8 // experimental extension header
+		}
+		if size > len(p.payload) {
+			return false
+		}
+		p.proto, p.payload = p.payload[0], p.payload[size:]
+	}
+	return true
 }
 
 // verified reports whether the checksum of what the packet carries is right

@@ -2,12 +2,10 @@
 
 package gre
 
-import "gvisor.dev/gvisor/pkg/tcpip/stack"
+import "github.com/xtls/xray-core/proxy/tun"
 
 type packetDevice interface {
-	Start() error
-	Close() error
-	Endpoint() stack.LinkEndpoint
+	tun.Tun
 }
 
 var createPacketDevice = newPacketDevice

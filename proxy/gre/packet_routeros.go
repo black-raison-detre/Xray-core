@@ -7,14 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"sync/atomic"
-
-	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
-
-var nextFragmentID atomic.Uint32
 
 const (
 	greProtocolIPv4  = 0x0800
@@ -32,9 +25,8 @@ const (
 )
 
 type decodedGREDatagram struct {
-	innerPacket     []byte
-	networkProtocol tcpip.NetworkProtocolNumber
-	keepaliveReply  []byte
+	innerPacket    []byte
+	keepaliveReply []byte
 }
 
 type runtimeConfig struct {
@@ -175,18 +167,18 @@ func decodeInnerIPv4(inner []byte, outerGREFlags uint16, outerHeaderLen, outerGR
 	default:
 		return decodedGREDatagram{}, errors.New("unsupported inner IPv4 protocol")
 	}
-	return decodedGREDatagram{innerPacket: inner, networkProtocol: header.IPv4ProtocolNumber}, nil
+	return decodedGREDatagram{innerPacket: inner}, nil
 }
 
 func decodeInnerIPv6(inner []byte, config runtimeConfig) (decodedGREDatagram, error) {
-	if len(inner) < header.IPv6MinimumSize || inner[0]>>4 != 6 {
+	if len(inner) < 40 || inner[0]>>4 != 6 {
 		return decodedGREDatagram{}, errors.New("malformed inner IPv6 packet")
 	}
 	payloadLength := int(binary.BigEndian.Uint16(inner[4:6]))
-	if payloadLength == 0 && len(inner) != header.IPv6MinimumSize {
+	if payloadLength == 0 && len(inner) != 40 {
 		return decodedGREDatagram{}, errors.New("inner IPv6 jumbograms are unsupported")
 	}
-	if header.IPv6MinimumSize+payloadLength != len(inner) || len(inner) > int(config.mtu) {
+	if 40+payloadLength != len(inner) || len(inner) > int(config.mtu) {
 		return decodedGREDatagram{}, errors.New("invalid inner IPv6 payload length or MTU")
 	}
 	source := netip.AddrFrom16([16]byte(inner[8:24]))
@@ -200,45 +192,45 @@ func decodeInnerIPv6(inner []byte, config runtimeConfig) (decodedGREDatagram, er
 	if err := validateIPv6Payload(inner); err != nil {
 		return decodedGREDatagram{}, err
 	}
-	return decodedGREDatagram{innerPacket: inner, networkProtocol: header.IPv6ProtocolNumber}, nil
+	return decodedGREDatagram{innerPacket: inner}, nil
 }
 
+// validateIPv6Payload checks extension lengths and the allowed transport without
+// allocating gVisor packet buffers. Reassembly and transport checksums belong to
+// the shared stack; non-initial fragments do not contain transport headers.
 func validateIPv6Payload(inner []byte) error {
-	payload := buffer.MakeWithData(inner[header.IPv6MinimumSize:])
-	iterator := header.MakeIPv6PayloadIterator(header.IPv6ExtensionHeaderIdentifier(inner[6]), payload)
-	defer iterator.Release()
-	nonInitialFragment := false
+	next, offset := inner[6], 40
 	seenFragment := false
 	for {
-		payloadHeader, done, err := iterator.Next()
-		if err != nil {
-			return errors.New("malformed inner IPv6 extension header")
-		}
-		if done {
-			return errors.New("unsupported inner IPv6 protocol")
-		}
-		switch payloadHeader := payloadHeader.(type) {
-		case header.IPv6FragmentExtHdr:
+		switch next {
+		case ipProtocolTCP, ipProtocolUDP, ipProtocolICMPv6:
+			return nil
+		case 0, 43, 60, 253: // hop-by-hop, routing, destination options, experiment
+			if offset+8 > len(inner) {
+				return errors.New("malformed inner IPv6 extension header")
+			}
+			size := (int(inner[offset+1]) + 1) * 8
+			if next == 253 {
+				size = 8
+			}
+			if offset+size > len(inner) {
+				return errors.New("malformed inner IPv6 extension header")
+			}
+			next, offset = inner[offset], offset+size
+		case 44: // fragment
 			if seenFragment {
 				return errors.New("multiple inner IPv6 fragment headers are unsupported")
 			}
+			if offset+8 > len(inner) {
+				return errors.New("malformed inner IPv6 fragment header")
+			}
 			seenFragment = true
-			nonInitialFragment = payloadHeader.FragmentOffset() != 0
-			payloadHeader.Release()
-		case header.IPv6RawPayloadHeader:
-			protocol := uint8(payloadHeader.Identifier)
-			payloadHeader.Release()
-			if nonInitialFragment {
+			if binary.BigEndian.Uint16(inner[offset+2:offset+4])&0xfff8 != 0 {
 				return nil
 			}
-			switch protocol {
-			case ipProtocolTCP, ipProtocolUDP, ipProtocolICMPv6:
-				return nil
-			default:
-				return errors.New("unsupported inner IPv6 protocol")
-			}
+			next, offset = inner[offset], offset+8
 		default:
-			payloadHeader.Release()
+			return errors.New("unsupported inner IPv6 protocol")
 		}
 	}
 }
@@ -272,227 +264,28 @@ func encodeGREPacket(inner []byte, mtu uint32) ([]byte, error) {
 }
 
 func outboundGREProtocol(inner []byte, mtu uint32) (uint16, error) {
-	if len(inner) == 0 || len(inner) > int(mtu) {
+	return outboundGREProtocolParts(inner, 0, mtu)
+}
+
+func outboundGREProtocolParts(header []byte, payloadSize int, mtu uint32) (uint16, error) {
+	size := len(header) + payloadSize
+	if len(header) == 0 || size > int(mtu) {
 		return 0, errors.New("invalid outbound inner IP packet")
 	}
-	switch inner[0] >> 4 {
+	switch header[0] >> 4 {
 	case 4:
-		if len(inner) < header.IPv4MinimumSize || int(binary.BigEndian.Uint16(inner[2:4])) != len(inner) {
+		if len(header) < 20 || int(binary.BigEndian.Uint16(header[2:4])) != size {
 			return 0, errors.New("invalid outbound inner IPv4 packet")
 		}
 		return greProtocolIPv4, nil
 	case 6:
-		if len(inner) < header.IPv6MinimumSize || header.IPv6MinimumSize+int(binary.BigEndian.Uint16(inner[4:6])) != len(inner) {
+		if len(header) < 40 || 40+int(binary.BigEndian.Uint16(header[4:6])) != size {
 			return 0, errors.New("invalid outbound inner IPv6 packet")
 		}
 		return greProtocolIPv6, nil
 	default:
 		return 0, errors.New("invalid outbound inner IP version")
 	}
-}
-
-func fragmentIPPacket(inner []byte, mtu uint32) ([][]byte, error) {
-	if len(inner) == 0 {
-		return nil, errors.New("invalid outbound inner IP packet")
-	}
-	switch inner[0] >> 4 {
-	case 4:
-		return fragmentIPv4Packet(inner, mtu)
-	case 6:
-		return fragmentIPv6Packet(inner, mtu)
-	default:
-		return nil, errors.New("invalid outbound inner IP version")
-	}
-}
-
-func fragmentIPv4Packet(inner []byte, mtu uint32) ([][]byte, error) {
-	if len(inner) < 20 || inner[0]>>4 != 4 {
-		return nil, errors.New("invalid outbound inner IPv4 packet")
-	}
-	headerLen := int(inner[0]&0x0f) * 4
-	if headerLen < 20 || headerLen > len(inner) || int(binary.BigEndian.Uint16(inner[2:4])) != len(inner) {
-		return nil, errors.New("invalid outbound inner IPv4 header")
-	}
-	if len(inner) <= int(mtu) {
-		return [][]byte{append([]byte(nil), inner...)}, nil
-	}
-	fragmentField := binary.BigEndian.Uint16(inner[6:8])
-	if fragmentField&0x4000 != 0 {
-		return nil, errors.New("outbound inner IPv4 packet exceeds MTU with DF set")
-	}
-	if fragmentField&0x3fff != 0 {
-		return nil, errors.New("outbound inner IPv4 fragment exceeds MTU")
-	}
-	maxPayload := (int(mtu) - headerLen) &^ 7
-	if maxPayload < 8 {
-		return nil, errors.New("MTU is too small for IPv4 fragmentation")
-	}
-	identification := binary.BigEndian.Uint16(inner[4:6])
-	if identification == 0 {
-		identification = uint16(nextFragmentID.Add(1))
-		if identification == 0 {
-			identification = uint16(nextFragmentID.Add(1))
-		}
-	}
-	payload := inner[headerLen:]
-	fragments := make([][]byte, 0, (len(payload)+maxPayload-1)/maxPayload)
-	for offset := 0; offset < len(payload); offset += maxPayload {
-		end := offset + maxPayload
-		if end > len(payload) {
-			end = len(payload)
-		}
-		fragment := make([]byte, headerLen+end-offset)
-		copy(fragment[:headerLen], inner[:headerLen])
-		copy(fragment[headerLen:], payload[offset:end])
-		binary.BigEndian.PutUint16(fragment[2:4], uint16(len(fragment)))
-		binary.BigEndian.PutUint16(fragment[4:6], identification)
-		field := uint16(offset / 8)
-		if end < len(payload) {
-			field |= 0x2000
-		}
-		binary.BigEndian.PutUint16(fragment[6:8], field)
-		fragment[10], fragment[11] = 0, 0
-		binary.BigEndian.PutUint16(fragment[10:12], checksum(fragment[:headerLen]))
-		fragments = append(fragments, fragment)
-	}
-	return fragments, nil
-}
-
-func fragmentIPv6Packet(inner []byte, mtu uint32) ([][]byte, error) {
-	if len(inner) < header.IPv6MinimumSize || inner[0]>>4 != 6 || header.IPv6MinimumSize+int(binary.BigEndian.Uint16(inner[4:6])) != len(inner) {
-		return nil, errors.New("invalid outbound inner IPv6 packet")
-	}
-	if mtu < 1280 {
-		return nil, errors.New("MTU is too small for IPv6")
-	}
-	if len(inner) <= int(mtu) {
-		return [][]byte{append([]byte(nil), inner...)}, nil
-	}
-	hasFragmentHeader, err := hasIPv6FragmentHeader(inner)
-	if err != nil {
-		return nil, err
-	}
-	if hasFragmentHeader {
-		return nil, errors.New("outbound inner IPv6 fragment exceeds MTU")
-	}
-	insertOffset, previousNextHeaderOffset, fragmentNextHeader, err := ipv6FragmentInsertionPoint(inner)
-	if err != nil {
-		return nil, err
-	}
-	maxPayload := (int(mtu) - insertOffset - header.IPv6FragmentHeaderSize) &^ 7
-	if maxPayload < header.IPv6FragmentExtHdrFragmentOffsetBytesPerUnit {
-		return nil, errors.New("MTU is too small for IPv6 fragmentation")
-	}
-	fragmentable := inner[insertOffset:]
-	identification := nextFragmentID.Add(1)
-	if identification == 0 {
-		identification = nextFragmentID.Add(1)
-	}
-	fragments := make([][]byte, 0, (len(fragmentable)+maxPayload-1)/maxPayload)
-	for offset := 0; offset < len(fragmentable); offset += maxPayload {
-		end := offset + maxPayload
-		if end > len(fragmentable) {
-			end = len(fragmentable)
-		}
-		fragment := make([]byte, insertOffset+header.IPv6FragmentHeaderSize+end-offset)
-		copy(fragment[:insertOffset], inner[:insertOffset])
-		fragment[previousNextHeaderOffset] = byte(header.IPv6FragmentExtHdrIdentifier)
-		fragmentHeader := fragment[insertOffset : insertOffset+header.IPv6FragmentHeaderSize]
-		fragmentHeader[0] = fragmentNextHeader
-		fragmentField := uint16(offset/header.IPv6FragmentExtHdrFragmentOffsetBytesPerUnit) << 3
-		if end < len(fragmentable) {
-			fragmentField |= 1
-		}
-		binary.BigEndian.PutUint16(fragmentHeader[2:4], fragmentField)
-		binary.BigEndian.PutUint32(fragmentHeader[4:8], identification)
-		copy(fragment[insertOffset+header.IPv6FragmentHeaderSize:], fragmentable[offset:end])
-		binary.BigEndian.PutUint16(fragment[4:6], uint16(len(fragment)-header.IPv6MinimumSize))
-		fragments = append(fragments, fragment)
-	}
-	return fragments, nil
-}
-
-func hasIPv6FragmentHeader(inner []byte) (bool, error) {
-	payload := buffer.MakeWithData(inner[header.IPv6MinimumSize:])
-	iterator := header.MakeIPv6PayloadIterator(header.IPv6ExtensionHeaderIdentifier(inner[6]), payload)
-	defer iterator.Release()
-	for {
-		payloadHeader, done, err := iterator.Next()
-		if err != nil {
-			return false, errors.New("malformed outbound inner IPv6 extension header")
-		}
-		if done {
-			return false, nil
-		}
-		switch payloadHeader := payloadHeader.(type) {
-		case header.IPv6FragmentExtHdr:
-			payloadHeader.Release()
-			return true, nil
-		case header.IPv6RawPayloadHeader:
-			payloadHeader.Release()
-			return false, nil
-		default:
-			payloadHeader.Release()
-		}
-	}
-}
-
-func ipv6FragmentInsertionPoint(inner []byte) (int, int, byte, error) {
-	offset := header.IPv6MinimumSize
-	previousNextHeaderOffset := 6
-	nextHeader := inner[previousNextHeaderOffset]
-	consumeExtension := func() error {
-		if offset+2 > len(inner) {
-			return errors.New("malformed outbound inner IPv6 extension header")
-		}
-		headerLength := (int(inner[offset+1]) + 1) * 8
-		if headerLength < 8 || offset+headerLength > len(inner) {
-			return errors.New("malformed outbound inner IPv6 extension header")
-		}
-		previousNextHeaderOffset = offset
-		nextHeader = inner[offset]
-		offset += headerLength
-		return nil
-	}
-	consumeExperimentExtension := func() error {
-		if offset+header.IPv6ExperimentHdrLength > len(inner) {
-			return errors.New("malformed outbound inner IPv6 experiment header")
-		}
-		previousNextHeaderOffset = offset
-		nextHeader = inner[offset]
-		offset += header.IPv6ExperimentHdrLength
-		return nil
-	}
-	if nextHeader == byte(header.IPv6HopByHopOptionsExtHdrIdentifier) {
-		if err := consumeExtension(); err != nil {
-			return 0, 0, 0, err
-		}
-	}
-	if nextHeader == byte(header.IPv6DestinationOptionsExtHdrIdentifier) {
-		if offset+2 > len(inner) {
-			return 0, 0, 0, errors.New("malformed outbound inner IPv6 destination options header")
-		}
-		candidateLength := (int(inner[offset+1]) + 1) * 8
-		if candidateLength < 8 || offset+candidateLength > len(inner) {
-			return 0, 0, 0, errors.New("malformed outbound inner IPv6 destination options header")
-		}
-		if inner[offset] == byte(header.IPv6RoutingExtHdrIdentifier) {
-			if err := consumeExtension(); err != nil {
-				return 0, 0, 0, err
-			}
-		}
-	}
-	for nextHeader == byte(header.IPv6RoutingExtHdrIdentifier) {
-		if err := consumeExtension(); err != nil {
-			return 0, 0, 0, err
-		}
-	}
-	for nextHeader == byte(header.IPv6ExperimentExtHdrIdentifier) {
-		if err := consumeExperimentExtension(); err != nil {
-			return 0, 0, 0, err
-		}
-	}
-	return offset, previousNextHeaderOffset, nextHeader, nil
 }
 
 func containsSource(prefixes []netip.Prefix, address netip.Addr) bool {

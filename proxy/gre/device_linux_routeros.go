@@ -4,17 +4,16 @@ package gre
 
 import (
 	"context"
+	"encoding/binary"
 	stderrors "errors"
 	"fmt"
+	"io"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/xtls/xray-core/common/errors"
 	"golang.org/x/sys/unix"
-	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
 type rawDevice struct {
@@ -24,9 +23,11 @@ type rawDevice struct {
 	fd        int
 	wakeRead  int
 	wakeWrite int
-	endpoint  *channel.Endpoint
 	remote    *unix.SockaddrInet4
-	wg        sync.WaitGroup
+	ioMu      sync.RWMutex
+	readMu    sync.Mutex
+	closed    bool
+	stopWake  func() bool
 	closeOnce sync.Once
 	dropMu    sync.Mutex
 	dropLast  time.Time
@@ -51,43 +52,49 @@ func newPacketDevice(ctx context.Context, config runtimeConfig) (packetDevice, e
 		return nil, fmt.Errorf("create GRE shutdown pipe: %w", err)
 	}
 	deviceCtx, cancel := context.WithCancel(ctx)
-	return &rawDevice{
+	device := &rawDevice{
 		ctx: deviceCtx, cancel: cancel, config: config, fd: fd,
 		wakeRead: wake[0], wakeWrite: wake[1],
-		endpoint: channel.New(1024, config.mtu, ""),
-		remote:   &unix.SockaddrInet4{Addr: config.remote.As4()},
-	}, nil
+		remote: &unix.SockaddrInet4{Addr: config.remote.As4()},
+	}
+	device.stopWake = context.AfterFunc(deviceCtx, device.wake)
+	return device, nil
 }
 
-func (d *rawDevice) Endpoint() stack.LinkEndpoint { return d.endpoint }
-
-func (d *rawDevice) Start() error {
-	d.wg.Add(2)
-	go d.receiveLoop()
-	go d.sendLoop()
-	return nil
+func (d *rawDevice) Name() (string, error) { return "gre", nil }
+func (d *rawDevice) Index() (int, error) {
+	return 0, fmt.Errorf("userspace GRE has no kernel interface")
 }
+func (d *rawDevice) Start() error { return nil }
 
-func (d *rawDevice) receiveLoop() {
-	defer d.wg.Done()
+// ReadPacket hands the validated inner packet directly to the stack. The caller
+// owns b and can reuse it after Input returns; no endpoint queue or copy is needed.
+func (d *rawDevice) ReadPacket(b []byte) ([]byte, error) {
+	d.readMu.Lock()
+	defer d.readMu.Unlock()
+	d.ioMu.RLock()
+	defer d.ioMu.RUnlock()
+	if d.closed || d.ctx.Err() != nil {
+		return nil, io.ErrClosedPipe
+	}
+	if len(b) < 65535 {
+		b = make([]byte, 65535)
+	}
 	pollFDs := []unix.PollFd{{Fd: int32(d.fd), Events: unix.POLLIN}, {Fd: int32(d.wakeRead), Events: unix.POLLIN}}
-	bufferBytes := make([]byte, 65535)
 	for {
 		_, err := unix.Poll(pollFDs, -1)
 		if err != nil {
 			if stderrors.Is(err, syscall.EINTR) {
 				continue
 			}
-			d.logDrop("poll raw socket", err)
-			return
+			return nil, fmt.Errorf("poll raw GRE socket: %w", err)
 		}
 		if pollFDs[1].Revents != 0 || d.ctx.Err() != nil {
-			return
+			return nil, io.ErrClosedPipe
 		}
 		revents := pollFDs[0].Revents
 		if revents&(unix.POLLHUP|unix.POLLNVAL) != 0 {
-			d.logDrop("raw socket poll failure", nil)
-			return
+			return nil, io.ErrClosedPipe
 		}
 		if revents&unix.POLLERR != 0 {
 			d.logSocketError()
@@ -95,33 +102,31 @@ func (d *rawDevice) receiveLoop() {
 		if revents&unix.POLLIN == 0 {
 			continue
 		}
-		n, from, err := unix.Recvfrom(d.fd, bufferBytes, 0)
+		n, from, err := unix.Recvfrom(d.fd, b, 0)
 		if err != nil {
 			if stderrors.Is(err, syscall.EINTR) || stderrors.Is(err, syscall.EAGAIN) {
 				continue
 			}
-			d.logDrop("receive raw packet", err)
-			return
+			return nil, fmt.Errorf("receive raw GRE packet: %w", err)
 		}
 		peer, ok := from.(*unix.SockaddrInet4)
 		if !ok || peer.Addr != d.config.remote.As4() {
 			d.logDrop("unexpected outer peer", nil)
 			continue
 		}
-		decoded, err := decodeGREDatagram(bufferBytes[:n], d.config)
+		decoded, err := decodeGREDatagram(b[:n], d.config)
 		if err != nil {
 			d.logDrop("reject GRE packet", err)
 			continue
 		}
 		if decoded.keepaliveReply != nil {
-			if err := d.sendToRemote(decoded.keepaliveReply); err != nil {
+			// ioMu is already held, including while reflecting a keepalive.
+			if err := d.sendToRemote([][]byte{decoded.keepaliveReply}); err != nil {
 				d.logDrop("reflect RouterOS GRE keepalive", err)
 			}
 			continue
 		}
-		packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(append([]byte(nil), decoded.innerPacket...))})
-		d.endpoint.InjectInbound(decoded.networkProtocol, packet)
-		packet.DecRef()
+		return decoded.innerPacket, nil
 	}
 }
 
@@ -138,42 +143,68 @@ func (d *rawDevice) logSocketError() {
 	d.logDrop("raw socket reported a recoverable error", syscall.Errno(socketError))
 }
 
-func (d *rawDevice) sendLoop() {
-	defer d.wg.Done()
+// WritePacket sends GRE, IP/transport headers and payload as one datagram.
+// The stack already segments TCP and fragments UDP/ICMP to the configured MTU.
+func (d *rawDevice) WritePacket(header, payload []byte) error {
+	protocol, err := outboundGREProtocolParts(header, len(payload), d.config.mtu)
+	if err != nil {
+		return err
+	}
+	var greHeader [4]byte
+	binary.BigEndian.PutUint16(greHeader[2:], protocol)
+	d.ioMu.RLock()
+	defer d.ioMu.RUnlock()
+	if d.closed || d.ctx.Err() != nil {
+		return io.ErrClosedPipe
+	}
+	return d.sendToRemote([][]byte{greHeader[:], header, payload})
+}
+
+// sendToRemote requires ioMu to be held so Close cannot recycle the socket fd.
+func (d *rawDevice) sendToRemote(parts [][]byte) error {
+	size := 0
+	for _, part := range parts {
+		size += len(part)
+	}
 	for {
-		packet := d.endpoint.ReadContext(d.ctx)
-		if packet == nil {
-			return
+		if d.ctx.Err() != nil {
+			return io.ErrClosedPipe
 		}
-		view := packet.ToView()
-		packet.DecRef()
-		fragments, err := fragmentIPPacket(view.AsSlice(), d.config.mtu)
-		view.Release()
-		if err != nil {
-			d.logDrop("reject outbound packet", err)
+		n, err := unix.SendmsgBuffers(d.fd, parts, nil, d.remote, 0)
+		if stderrors.Is(err, syscall.EINTR) {
 			continue
 		}
-		for _, fragment := range fragments {
-			grePacket, err := encodeGREPacket(fragment, d.config.mtu)
-			if err != nil {
-				d.logDrop("encode outbound GRE packet", err)
-				break
+		if stderrors.Is(err, syscall.EAGAIN) {
+			pollFDs := []unix.PollFd{{Fd: int32(d.fd), Events: unix.POLLOUT}, {Fd: int32(d.wakeRead), Events: unix.POLLIN}}
+			for {
+				_, err = unix.Poll(pollFDs, -1)
+				if !stderrors.Is(err, syscall.EINTR) {
+					break
+				}
 			}
-			err = d.sendToRemote(grePacket)
 			if err != nil {
-				d.logDrop("send GRE packet", err)
-				break
+				return err
 			}
+			if pollFDs[1].Revents != 0 || d.ctx.Err() != nil {
+				return io.ErrClosedPipe
+			}
+			if pollFDs[0].Revents&(unix.POLLHUP|unix.POLLERR|unix.POLLNVAL) != 0 {
+				return fmt.Errorf("raw GRE socket failed while waiting to send")
+			}
+			continue
 		}
+		if err == nil && n != size {
+			return io.ErrShortWrite
+		}
+		return err
 	}
 }
 
-func (d *rawDevice) sendToRemote(payload []byte) error {
-	for {
-		err := unix.Sendto(d.fd, payload, 0, d.remote)
-		if !stderrors.Is(err, syscall.EINTR) {
-			return err
-		}
+func (d *rawDevice) wake() {
+	d.ioMu.RLock()
+	defer d.ioMu.RUnlock()
+	if !d.closed {
+		_, _ = unix.Write(d.wakeWrite, []byte{1})
 	}
 }
 
@@ -197,9 +228,11 @@ func (d *rawDevice) Close() error {
 	var closeErr error
 	d.closeOnce.Do(func() {
 		d.cancel()
-		_, _ = unix.Write(d.wakeWrite, []byte{1})
-		d.wg.Wait()
-		d.endpoint.Close()
+		d.stopWake()
+		d.wake()
+		d.ioMu.Lock()
+		defer d.ioMu.Unlock()
+		d.closed = true
 		for _, fd := range []int{d.fd, d.wakeRead, d.wakeWrite} {
 			if err := unix.Close(fd); err != nil && closeErr == nil {
 				closeErr = err

@@ -43,6 +43,9 @@ type StackOptions struct {
 	// has come a long way, so its checksums are looked at, nothing but that way limits the windows, and the
 	// segments of TCP carry the times of both sides if the other side has them
 	Remote bool
+	// ICMPEchoDelay controls synthesized echo replies. A false result drops the
+	// request. Nil preserves the handler's default behavior.
+	ICMPEchoDelay func() (time.Duration, bool)
 }
 
 // flow is what the packets of one connection have in common, src is the side of the system
@@ -121,7 +124,9 @@ func NewStack(ctx context.Context, options StackOptions, handler ConnectionHandl
 	for i := range s.identification {
 		s.identification[i].Store(rand.Uint32())
 	}
-	if probe, ok := handler.(interface{ icmpEchoDelay() (time.Duration, bool) }); ok {
+	if options.ICMPEchoDelay != nil {
+		s.icmpEchoDelay = options.ICMPEchoDelay
+	} else if probe, ok := handler.(interface{ icmpEchoDelay() (time.Duration, bool) }); ok {
 		s.icmpEchoDelay = probe.icmpEchoDelay
 	}
 	if handler != nil {
@@ -241,6 +246,9 @@ func (s *stack) input(b []byte, rest int) {
 	}
 	if p.fragment {
 		p, ok = s.fragments.add(p)
+		if ok && p.src.Is6() {
+			ok = p.skipIPv6Extensions()
+		}
 	}
 	if !ok || verify && !p.verified() {
 		return

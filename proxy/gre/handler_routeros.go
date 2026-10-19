@@ -21,7 +21,7 @@ import (
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
-	"github.com/xtls/xray-core/proxy/internal/packetstack"
+	"github.com/xtls/xray-core/proxy/tun"
 	"github.com/xtls/xray-core/transport"
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
@@ -32,7 +32,7 @@ type Handler struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	config          *Config
-	stack           *packetstack.Stack
+	stack           tun.Stack
 	device          packetDevice
 	policyManager   policy.Manager
 	dispatcher      routing.Dispatcher
@@ -81,13 +81,13 @@ func (h *Handler) Start() error {
 	if err != nil {
 		return err
 	}
-	packetStack, err := packetstack.New(h.ctx, packetstack.Options{
-		Endpoint:         device.Endpoint(),
-		IdleTimeout:      h.policyManager.ForLevel(h.config.GetUserLevel()).Timeouts.ConnectionIdle,
-		HandleConnection: h.HandleConnection,
-		ICMPEchoDelay:    h.icmpEchoDelay,
-		LogPrefix:        "gre",
-	})
+	packetStack, err := tun.NewStack(h.ctx, tun.StackOptions{
+		Tun:           device,
+		MTU:           runtimeConfig.mtu,
+		IdleTimeout:   h.policyManager.ForLevel(h.config.GetUserLevel()).Timeouts.ConnectionIdle,
+		Remote:        true,
+		ICMPEchoDelay: h.icmpEchoDelay,
+	}, h)
 	if err != nil {
 		_ = device.Close()
 		return err
@@ -146,19 +146,44 @@ func (h *Handler) HandleConnection(conn net.Conn, destination net.Destination) {
 		return
 	}
 	source := net.DestinationFromAddr(remote)
-	if h.uplinkCounter != nil || h.downlinkCounter != nil {
-		conn = &stat.CounterConnection{Connection: conn, ReadCounter: h.uplinkCounter, WriteCounter: h.downlinkCounter}
-	}
 	inbound := session.Inbound{Name: "gre", Tag: h.tag, CanSpliceCopy: 3, Source: source, User: &protocol.MemoryUser{Level: h.config.GetUserLevel()}}
 	ctx = session.ContextWithInbound(ctx, &inbound)
 	ctx = session.ContextWithContent(ctx, &session.Content{SniffingRequest: h.sniffingRequest})
 	ctx = session.SubContextFromMuxInbound(ctx)
 	ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{From: source, To: destination, Status: log.AccessAccepted})
 	errors.LogInfo(ctx, "processing from ", source, " to ", destination)
-	link := &transport.Link{Reader: &buf.TimeoutWrapperReader{Reader: buf.NewReader(conn)}, Writer: buf.NewWriter(conn)}
+	// Preserve the shared stack's buf.Reader/buf.Writer paths and TCP half-close
+	// behavior instead of wrapping the connection in a copying io adapter.
+	reader := &buf.TimeoutWrapperReader{Reader: buf.NewReader(conn), Counter: h.uplinkCounter}
+	writer := buf.NewWriter(conn)
+	if destination.Network != net.Network_UDP {
+		writer = &tun.TCPWriter{Writer: writer, Counter: h.downlinkCounter}
+	} else if h.downlinkCounter != nil {
+		writer = &greUDPStatsWriter{writer: writer, counter: h.downlinkCounter}
+	}
+	link := &transport.Link{Reader: reader, Writer: writer}
 	if err := h.dispatcher.DispatchLink(ctx, destination, link); err != nil {
 		errors.LogError(ctx, errors.New("connection closed").Base(err))
 	}
+}
+
+type greUDPStatsWriter struct {
+	writer  buf.Writer
+	counter stats.Counter
+}
+
+func (w *greUDPStatsWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
+	for len(mb) > 0 {
+		remaining, packet := buf.SplitFirst(mb)
+		size := packet.Len()
+		if err := w.writer.WriteMultiBuffer(buf.MultiBuffer{packet}); err != nil {
+			buf.ReleaseMulti(remaining)
+			return err
+		}
+		w.counter.Add(int64(size))
+		mb = remaining
+	}
+	return nil
 }
 
 func (h *Handler) Close() error {

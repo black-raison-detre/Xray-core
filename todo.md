@@ -66,3 +66,53 @@ DNS to 1.1.1.1 timed out. Darwin process lookup tests also failed under the
 sandbox, then all of `./common/net` passed on a permitted rerun outside it.
 The full suite is not reported as passing. Full log:
 `/private/tmp/xray-migration-staged-full.log`.
+
+## RouterOS GRE shared-stack port
+
+GRE now uses `proxy/tun.NewStack` with `Remote: true` and an explicit ICMP-delay
+callback. The raw device reads validated inner packets directly into the stack
+and sends GRE/header/payload slices as one datagram. The former gVisor endpoint
+queue and receive/send worker pair are gone. Peer/source checks, the exact
+RouterOS keepalive, MTU enforcement, routing metadata, sniffing, and payload
+counters retain their configuration contracts. The shared stack now also handles
+experimental IPv6 extensions and destination options after fragment reassembly.
+The old GRE fragmentation generators are test-only peer helpers.
+
+Local checks for this follow-up use
+`GOCACHE=/private/tmp/xray-gre-port-gocache`:
+
+- Final `go test -race -tags routeros_gre -timeout 5m ./proxy/gre ./proxy/tun
+  ./proxy/wireguard ./infra/conf` passed, including actual GRE dispatcher
+  metadata/counter checks, IPv4/IPv6 TCP/UDP, fragmentation, IPv6 extensions, and
+  fake/probe ICMP replies. Log:
+  `/private/tmp/xray-gre-port-final-focused-complete.log`.
+- RouterOS production dependency check: `go list -deps -tags routeros_gre ./main`
+  contains no `gvisor.dev/gvisor` packages. gVisor remains a test peer and a module
+  dependency; the old internal packetstack is no longer linked by GRE.
+- RouterOS Linux/mipsle soft-float, Linux/arm64, and Linux/amd64 release builds
+  passed; native Darwin and Windows/amd64 default builds passed. Outputs are
+  `/private/tmp/xray-gre-port-linux-{mipsle,arm64,amd64}`,
+  `/private/tmp/xray-gre-port-native`, and
+  `/private/tmp/xray-gre-port-windows.exe`.
+- Linux/amd64 GRE tests cross-compiled to
+  `/private/tmp/xray-gre-port-linux.test`. The Linux socket tests are compile-only
+  here: this macOS host has no running Docker daemon or Lima instance.
+- Changed Go files pass the repository formatter in an isolated scope. The
+  whole-checkout formatter also traverses unrelated untracked CodeQL module
+  caches and reports dependency sources/templates there; those were untouched.
+- Independent working-tree review found no actionable correctness defects. This
+  is not staged-snapshot approval or a commit.
+- `go test -timeout 1h -v ./...` exited 1: AdGuard `TestQUICNameServer` returned
+  no record and panicked; TLS ECH DNS to `1.1.1.1` timed out and produced a
+  malformed-ECH-config panic; five Darwin process-lookup tests were denied by
+  the sandbox. `go test -count=1 -timeout 1m ./common/net` passed outside the
+  sandbox. The full suite is not a pass. Logs:
+  `/private/tmp/xray-gre-port-full.log` and
+  `/private/tmp/xray-gre-port-common-net-outside.log`.
+
+Remaining device work:
+
+- [ ] Exercise real RouterOS GRE traffic, keepalives, packet loss/reordering,
+  IPv4/IPv6 fragmentation/MTU changes, and cancellation under socket backpressure.
+- [ ] Measure idle/load CPU and RSS on the same router and workload before
+  claiming a quantified CPU/RAM reduction.
