@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,6 +43,8 @@ type netTun struct {
 	events         chan tun.Event
 	notifyHandle   *channel.NotificationHandle
 	incomingPacket chan *buffer.View
+	closed         chan struct{}
+	closeOnce      sync.Once
 	mtu            int
 	dnsServers     []netip.Addr
 	hasV4, hasV6   bool
@@ -58,6 +61,7 @@ func CreateNetTUN(localAddresses, dnsServers []netip.Addr, mtu int, handleLocal 
 		stack:          stack.New(opts),
 		events:         make(chan tun.Event, 10),
 		incomingPacket: make(chan *buffer.View),
+		closed:         make(chan struct{}),
 		dnsServers:     dnsServers,
 		mtu:            mtu,
 	}
@@ -124,12 +128,15 @@ func (tun *netTun) Events() <-chan tun.Event {
 }
 
 func (tun *netTun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
-	view, ok := <-tun.incomingPacket
-	if !ok {
+	var view *buffer.View
+	select {
+	case view = <-tun.incomingPacket:
+	case <-tun.closed:
 		return 0, os.ErrClosed
 	}
 
 	n, err := view.Read(buf[0][offset:])
+	view.Release()
 	if err != nil {
 		return 0, err
 	}
@@ -166,22 +173,28 @@ func (tun *netTun) WriteNotify() {
 	view := pkt.ToView()
 	pkt.DecRef()
 
-	tun.incomingPacket <- view
+	select {
+	case tun.incomingPacket <- view:
+	case <-tun.closed:
+		view.Release()
+	}
 }
 
 func (tun *netTun) Close() error {
-	tun.stack.RemoveNIC(1)
-	tun.stack.Close()
-	tun.ep.RemoveNotify(tun.notifyHandle)
-	tun.ep.Close()
+	tun.closeOnce.Do(func() {
+		// Wake blocked readers and writers before tearing down the stack. Keep
+		// incomingPacket open because WriteNotify may be sending on it.
+		close(tun.closed)
 
-	if tun.events != nil {
-		close(tun.events)
-	}
+		tun.stack.RemoveNIC(1)
+		tun.stack.Close()
+		tun.ep.RemoveNotify(tun.notifyHandle)
+		tun.ep.Close()
 
-	if tun.incomingPacket != nil {
-		close(tun.incomingPacket)
-	}
+		if tun.events != nil {
+			close(tun.events)
+		}
+	})
 
 	return nil
 }

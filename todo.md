@@ -2,6 +2,23 @@
 
 Scope: maintain `v26.7.11-custom` at `075ec011` with selected upstream correctness fixes only. Older feature-port and behavior-change tasks below are deferred and require separate authorization; do not merge upstream functionality, TUN rewrites, TLS trust defaults, Lua, or dependency/toolchain migrations as part of this maintenance.
 
+## Follow-up: Hysteria, WireGuard, and 32-bit observatory
+
+Baseline: `9e6e9a4a`. Keep the existing dependency versions and private configuration behavior.
+
+- [x] Backport Hysteria stalled-write shutdown (`da2248c5`, #7172) and cover concurrent stream write/close.
+- [x] Backport the Hysteria 1500-byte UDP receive buffer (`d562d894`, #6788) and cover larger received datagrams.
+- [x] Backport WireGuard packet-channel shutdown and packet-view release (`dbb1ea30`, #6778; `60e2a0c5`, #6801), with shutdown regressions. Signal shutdown before stack teardown and use `sync.Once` so repeated closes are safe.
+- [x] Port only the burst-observatory duration arithmetic from `d15966c7` (#7155); add accumulated and single-sample RTT overflow regressions.
+- [x] Verify the regressions against original implementations: stalled QUIC write, truncated UDP payload, WireGuard send-on-closed-channel panic, and retained packet view all fail with baseline overlays. Run `go test -race -count=1 -timeout 3m ./transport/internet/hysteria ./proxy/hysteria ./proxy/wireguard ./app/observatory/burst` in `xray-linux`; all pass.
+- [x] Execute the observatory regression as a 32-bit Linux binary under QEMU in the VM: the original code reports negative averages; the patched full burst suite passes. QEMU 7.0 crashes in the Go runtime with default settings; both binaries run with `GODEBUG=asyncpreemptoff=1 GOMAXPROCS=1`. This is emulation evidence, not RouterOS hardware proof.
+- [x] Build and launch the release-style Linux/arm64 CLI with Go 1.27.1; it reports Xray 26.7.11. Independent working-tree review approved all ten Go implementation/test files, with no actionable findings.
+- [x] Run `go test -timeout 1h -v ./...` in the Linux VM: exited 1. The four changed packages and `testing/scenarios` passed. `app/dns/TestQUICNameServer` received no record from AdGuard DNS-over-QUIC; `transport/internet/tls/TestECHDial` timed out querying ECH DNS records through `1.1.1.1:53` and panicked with `tls: malformed ECHConfigList`. These external-service failures remain unresolved. Full log: `/private/tmp/xray-followup-validation/linux-logs/full-suite.log`.
+
+Linux validation logs: `/private/tmp/xray-followup-validation/`. The source snapshot manifest is `cf08f43b57df1d46ce71ec21955ef02d970fe0c9878c23643930ace7371e71e4`; subsequent changes to this section record validation only. No dependency versions or private configuration fields changed. Live WireGuard peer, Hysteria interoperability, and RouterOS hardware testing remain unverified.
+
+## Earlier maintenance batch
+
 - [x] Windows ReadV: wait for runtime socket readability before synchronous `WSARecv`, resetting readiness on every multi-buffer read (`ccb69ea5`, #6743). Add a Windows-only idle-read deadline regression with a preceding multi-buffer read.
 - [x] Hysteria: make TCP/UDP client-lock waits and authentication honor cancellation, close failed authentication resources, and keep successful connections reusable (`7c2e05dc`, #7119). Preserve the older client lifecycle without importing stopped-instance tracking.
 - [x] Hysteria: snapshot the client map before waiting for per-client cleanup so unrelated client creation can proceed (`2bea2df6`, #7122). Add cancellation, local HTTP/3 authentication, connection-lifecycle, and cleanup-lock regressions.

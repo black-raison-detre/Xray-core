@@ -51,6 +51,36 @@ func TestHealthPingResults(t *testing.T) {
 	}
 }
 
+func TestHealthPingResultsAverageBeyondInt32(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		samples []time.Duration
+		average time.Duration
+	}{
+		{
+			name:    "accumulated RTT",
+			samples: []time.Duration{800 * time.Millisecond, 800 * time.Millisecond, 800 * time.Millisecond, 800 * time.Millisecond},
+			average: 800 * time.Millisecond,
+		},
+		{
+			name:    "single RTT",
+			samples: []time.Duration{3 * time.Second},
+			average: 3 * time.Second,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hr := burst.NewHealthPingResult(len(tc.samples), time.Hour)
+			for _, sample := range tc.samples {
+				hr.Put(sample)
+			}
+			stats := hr.Get()
+			if stats.Average != tc.average {
+				t.Fatalf("average = %v, want %v", stats.Average, tc.average)
+			}
+		})
+	}
+}
+
 func TestHealthPingResultsIgnoreOutdated(t *testing.T) {
 	rtts := []int64{60, 140, 60, 140}
 	hr := burst.NewHealthPingResult(4, time.Duration(10)*time.Millisecond)

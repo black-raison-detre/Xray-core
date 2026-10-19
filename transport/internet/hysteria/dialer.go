@@ -289,6 +289,7 @@ func (c *client) tcp(ctx context.Context) (stat.Connection, error) {
 		remote: c.conn.RemoteAddr(),
 
 		client: true,
+		lock:   make(chan struct{}, 1),
 	}, nil
 }
 
