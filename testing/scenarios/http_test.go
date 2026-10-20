@@ -450,13 +450,13 @@ func TestHTTPOutboundServerFirst(t *testing.T) {
 	defer conn.Close()
 
 	common.Must(conn.SetReadDeadline(time.Now().Add(5 * time.Second)))
-	response := make([]byte, 1024)
-	nBytes, err := conn.Read(response)
+	response := make([]byte, len(tcpServer.SendFirst))
+	_, err = io.ReadFull(conn, response)
 	if err != nil {
 		t.Fatal("no server greeting through HTTP outbound: ", err)
 	}
-	if string(response[:nBytes]) != "send first" {
-		t.Fatal("unexpected first response: ", string(response[:nBytes]))
+	if string(response) != "send first" {
+		t.Fatal("unexpected first response: ", string(response))
 	}
 	common.Must(conn.SetReadDeadline(time.Time{}))
 
