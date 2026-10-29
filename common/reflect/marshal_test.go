@@ -3,6 +3,7 @@ package reflect_test
 import (
 	"bytes"
 	"encoding/json"
+	stdreflect "reflect"
 	"strings"
 	"testing"
 
@@ -128,6 +129,48 @@ func TestMarshalConfigJson(t *testing.T) {
 			t.Error("keyword not found:", kw)
 			break
 		}
+	}
+}
+
+func TestMarshalFakeDNSConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pool string
+	}{
+		{
+			name: "single pool",
+			pool: `{"ipPool":"100.64.0.0/16","poolSize":1024}`,
+		},
+		{
+			name: "IPv4 and IPv6 pools",
+			pool: `[{"ipPool":"100.64.0.0/16","poolSize":1024},{"ipPool":"fd00:1234::/64","poolSize":2048}]`,
+		},
+		{
+			name: "empty pools",
+			pool: `[]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := iserial.DecodeJSONConfig(strings.NewReader(`{"fakedns":` + tc.pool + `}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dump, ok := MarshalToJson(config, true)
+			if !ok {
+				t.Fatal("marshal config failed")
+			}
+			var got map[string]interface{}
+			if err := json.Unmarshal([]byte(dump), &got); err != nil {
+				t.Fatal(err)
+			}
+			var want interface{}
+			if err := json.Unmarshal([]byte(tc.pool), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !stdreflect.DeepEqual(got["fakeDns"], want) {
+				t.Fatalf("FakeDNS dump = %v, want %v", got["fakeDns"], want)
+			}
+		})
 	}
 }
 

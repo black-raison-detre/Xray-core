@@ -175,6 +175,12 @@ func marshalKnownType(v interface{}, ignoreNullValue bool, insertTypeInfo bool) 
 		return ty, true
 	case *json.RawMessage, json.RawMessage:
 		return ty, true
+	case *conf.FakeDNSConfig:
+		if ty == nil {
+			return nil, false
+		}
+		// Preserve the pool object or array through FakeDNSConfig.MarshalJSON.
+		return ty, true
 	case *cnet.IPOrDomain:
 		if domain := v.(*cnet.IPOrDomain); domain != nil {
 			return domain.AsAddress().String(), true
