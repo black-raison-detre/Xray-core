@@ -81,6 +81,8 @@ jobs:
       GOOS: ${{ matrix.goos}}
       GOARCH: ${{ matrix.goarch }}
       CGO_ENABLED: 0
+      # Fail if the patched builder is too old instead of replacing it with stock Go.
+      GOTOOLCHAIN: local
     steps:
       - name: Checkout codebase
         uses: actions/checkout@v7

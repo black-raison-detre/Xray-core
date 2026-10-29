@@ -2,6 +2,47 @@
 
 Scope: maintain `v26.7.11-custom` at `075ec011` with selected upstream correctness fixes only. Older feature-port and behavior-change tasks below are deferred and require separate authorization; do not merge upstream functionality, TUN rewrites, TLS trust defaults, Lua, or dependency/toolchain migrations as part of this maintenance.
 
+## CA security backport (2026-10-29)
+
+The requested security exception to the toolchain deferral above follows [upstream v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21). This branch uses OS roots and does not contain the bundled RootCAs feature or its fallback dependency, so the dependency-only change in [#7212](https://github.com/XTLS/Xray-core/pull/7212) does not apply here.
+
+Upstream's bundle removed emSign ECC Root CA - C3, emSign ECC Root CA - G3, and emSign Root CA - C1. The reported cracked keys belong to eight intermediate certificates; Go's verifier update blocks those intermediate public keys rather than removing all three roots from the OS store.
+
+- [x] Require Go 1.27.3 or later for the `crypto/x509` distrust fix ([CVE-2026-111943](https://go.dev/issue/82345)). The fix rejects chains containing any of eight distrusted intermediate public keys, including when OS trust stores have not been updated. Existing OS-root and custom-certificate behavior is retained; no dependency versions change.
+- [x] Enforce the patched compiler floor in `go.mod`, which is also used by test/release workflows. A Go 1.26.10 floor alone would still allow vulnerable Go 1.27.0-1.27.2; a `toolchain` preference alone would not enforce the floor for downstream consumers.
+- [x] Keep Go 1.26's GODEBUG compatibility defaults with `godebug default=go1.26`; the security distrust check is unconditional and remains active.
+- [x] Disable automatic toolchain switching in the Windows 7 release job so an outdated patched builder fails the minimum-version check instead of silently switching to a stock compiler without Windows 7 support.
+- [x] Confirm `GOTOOLCHAIN=local go list ./transport/internet/tls` refuses the host's Go 1.27.1, while automatic toolchain selection uses Go 1.27.3.
+- [x] Run `go test -count=1 -timeout 3m ./transport/internet/tls -skip '^TestECHDial$'` with Go 1.27.3: passed. Build and launch the release-style Darwin/arm64 CLI; `go version -m` confirms Go 1.27.3, `CGO_ENABLED=0`, and the Go 1.26 compatibility defaults.
+- [x] Complete independent working-tree source review of `go.mod`, the Windows 7 workflow, and this maintenance record, including TLS/uTLS callers; no actionable findings.
+- [x] Run `go test -timeout 1h -v ./...` with Go 1.27.3: exited 1 after 309.5 seconds. `app/dns/TestQUICNameServer` reported no DNS record; `transport/internet/tls/TestECHDial` panicked after the Cloudflare HTTPS request returned EOF. Five Darwin process tests were blocked by sandbox process enumeration; rerunning those five outside the sandbox passed. `TestVlessXtlsVisionReality` and `TestVlessRealityFingerprints` timed out in the scenario suite. The isolated REALITY rerun passed Vision; fingerprint timeouts moved from iOS in the full suite to Firefox/Edge, while iOS passed.
+- [x] Compare the REALITY scenarios with Go 1.27.1 and exact HEAD module files via `GOFLAGS=-modfile=/private/tmp/xray-ca-backport/baseline.mod GOTOOLCHAIN=local`. Both the test runner and its helper binary report Go 1.27.1. Vision passed; Firefox/Edge timed out as they did on Go 1.27.3, and QQ also timed out. This reproduces the fingerprint failure class without the backport; the full-suite result remains a failure.
+
+Validation logs and the Darwin test binary are under `/private/tmp/xray-ca-backport/`; the build cache is `/private/tmp/xray-ca-backport-go-cache`. Existing binaries must be rebuilt to receive the standard-library fix. Windows/macOS native platform trust rejection and a chain containing a distrusted intermediate have not been exercised directly; the compiler floor and upstream verifier patch establish the security integration, while the TLS tests establish ordinary certificate behavior.
+
+### Linux VM rerun (2026-10-29)
+
+- [x] Test an isolated snapshot of `da9fbd47580bdac67aaa8ff8e877901a03cfde29` plus the CA-security working-tree changes in the existing ARM64 `xray-linux` VM (2 CPUs, 2 GiB). The 1,161-file manifest SHA-256 is `a956d723dd2354af873629230591b00d6e0efad042b93864aa03c636088421ec`; all file hashes passed before and after validation. The two unrelated untracked CodeQL directories were excluded. Runtime and release-binary metadata confirm Go 1.27.3 Linux/arm64.
+- [x] Run the full unfiltered `go test -timeout 1h -v ./...` with `GOFLAGS=-p=1`, `GOMAXPROCS=2`, and `GOMEMLIMIT=1GiB`: exited 1. External `TestQUICNameServer` again reported no DNS record; `TestECHDial` timed out querying `1.1.1.1:53` and panicked with a malformed ECH config. The initial run also failed certificate generation on the read-only snapshot, the VMess AEAD stress timestamp check, REALITY Vision's transfer, and the large KCP transfer. Targeted reruns below passed; the full-suite result remains a failure.
+- [x] Pass `go test -count=1 -timeout 3m ./transport/internet/tls -skip '^TestECHDial$'`, `go test -count=1 -timeout 3m ./common/net`, and the full suite's `TestVlessRealityFingerprints` (all six fingerprints).
+- [x] Compile the whole certificate package's tests with `go test -c -o /tmp/cert-tests/cert.test ./common/protocol/tls/cert`, then run the binary from writable `/tmp/cert-tests`: passed, including `TestGenerate`. This clears the artificial read-only-working-directory failure without changing source.
+- [x] Rerun the whole `proxy/vmess/aead` package with `-count=1 -timeout 3m`: passed, including `TestCreateAuthIDAndDecodeSuperMassive`. Rerun `go test -count=1 -timeout 3m -v ./testing/scenarios -run '^Test(VlessXtlsVisionReality|VMessKCPLarge)$'`: both passed. Supplemental checks took 104.1 seconds measured by the host's monotonic clock; source hashes still matched.
+- [x] Build and launch the release-style `CGO_ENABLED=0` Linux/arm64 CLI; build metadata confirms Go 1.27.3. Stop `xray-linux` afterward and verify the default Docker context remains `default`.
+
+VM artifacts, exact runner scripts, snapshot, logs, and Linux binary: `/private/tmp/xray-ca-vm-20261029/` (`report.txt`, `results/full-suite.log`, `followup.log`, `results/xray`). The container reached its 1.5-GiB memory cap with no OOM kill. A backward VM wall-clock jump was observed during the release build, so shell elapsed times are unreliable; it does not establish the cause of the earlier timestamp/transfer failures. Linux results do not exercise Darwin/Windows-specific tests. The separate Darwin process tests already passed outside the host sandbox.
+
+### Offline DNS/DoQ/ECH simulator (2026-10-29)
+
+The host resolves AdGuard through the TUN resolver at `198.18.0.2` to a synthetic address, and routes `1.1.1.1` through `utun4`. The user confirmed the TUN restriction and requested local simulation instead of further Internet probes.
+
+- [x] Replace only the two external test files through temporary Go overlays; keep production code and repository tests unchanged. Run on Go 1.27.3 Linux/arm64 in a Docker container with `--network=none`: only loopback exists, with no route to the Internet. All four selected tests passed (exit 0, 7.657 seconds host-monotonic time).
+- [x] Exercise the production DoQ client against an actual loopback QUIC server: TLS verification with a temporary private CA, `doq` ALPN, length-framed DNS, A/AAAA answers, repeated cache hits, and IPv4-only/IPv6-only cached views. The isolated Linux process sets its CA environment before the first system-root load; this trust setup is not designed for arbitrary full-suite ordering.
+- [x] Exercise production ECH DNS discovery/configuration against a loopback UDP HTTPS-record server and a real TLS 1.3 ECH-capable HTTPS server. Ten concurrent requests require `ECHAccepted`, verified certificate chains and the inner server name; exactly one DNS query serves the shared cache. The cache update lock is released.
+- [x] Check negative controls: a trusted TLS server without ECH keys is rejected with `ECHRejectionError` before HTTP, and local DNS SERVFAIL retains the production fail-closed invalid-config sentinel. The SERVFAIL case checks configuration behavior, not a subsequent TLS handshake.
+- [x] Independently review the fixtures, runner, production paths and captured artifacts: no actionable defects. All 1,161 original source hashes and the three overlay fixture hashes match. Restore `xray-linux` to Stopped; Docker context stays `default`.
+
+Simulator code, overlay map, scripts and logs: `/private/tmp/xray-local-dns-sim-20261029/` (`report.txt`, `results/doq.log`, `results/ech.log`). This proves the targeted client paths without external DNS/firewall dependencies; it does not establish full-suite success, public-upstream reachability, native platform behavior, race-detector coverage, or rejection of an actual distrusted intermediate chain.
+
 ## Follow-up: Hysteria, WireGuard, and 32-bit observatory
 
 Baseline: `9e6e9a4a`. Keep the existing dependency versions and private configuration behavior.

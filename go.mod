@@ -1,6 +1,10 @@
 module github.com/xtls/xray-core
 
-go 1.26
+// Go 1.27.3 includes the crypto/x509 intermediate distrust fix (CVE-2026-111943).
+go 1.27.3
+
+// Preserve this maintenance branch's compatibility defaults.
+godebug default=go1.26
 
 require (
 	github.com/apernet/quic-go v0.59.1-0.20260425001925-6c6cc9bcb716
