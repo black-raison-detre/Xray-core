@@ -104,6 +104,7 @@ type tcpCapture struct {
 
 type udpRelay struct {
 	conn      stdnet.PacketConn
+	port      int
 	target    *stdnet.UDPAddr
 	clientMu  sync.Mutex
 	client    *stdnet.UDPAddr
@@ -350,12 +351,13 @@ func runHysteria2Case(t *testing.T, bin string, mode trafficMode, payloadSize in
 	backend := startXOREchoServer(t)
 	defer backend.Close()
 
-	serverPort := testingtcp.PickPort()
-	relayPort := testingtcp.PickPort()
+	serverPortConn, serverPort := reserveUDPPort(t)
+	defer serverPortConn.Close()
 	clientPort := testingtcp.PickPort()
 
-	relay := startUDPRelay(t, int(relayPort), int(serverPort))
+	relay := startUDPRelay(t, int(serverPort))
 	defer relay.Close()
+	relayPort := relay.port
 
 	ct, ctHash := cert.MustGenerate(nil, cert.CommonName("localhost"), cert.DNSNames("localhost"))
 	auth := "hy2-auth-secret"
@@ -455,6 +457,9 @@ func runHysteria2Case(t *testing.T, bin string, mode trafficMode, payloadSize in
 		},
 	})
 
+	if err := serverPortConn.Close(); err != nil {
+		t.Fatal(err)
+	}
 	serverCmd, clientCmd := runXrayPair(t, bin, serverConfig, clientConfig)
 	defer stopCmd(clientCmd)
 	defer stopCmd(serverCmd)
@@ -1128,15 +1133,26 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func startUDPRelay(t *testing.T, listenPort, targetPort int) *udpRelay {
+func reserveUDPPort(t *testing.T) (stdnet.PacketConn, xnet.Port) {
 	t.Helper()
-	conn, err := stdnet.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", listenPort))
+	conn, err := stdnet.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return conn, xnet.Port(conn.LocalAddr().(*stdnet.UDPAddr).Port)
+}
+
+func startUDPRelay(t *testing.T, targetPort int) *udpRelay {
+	t.Helper()
+	conn, err := stdnet.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := conn.LocalAddr().(*stdnet.UDPAddr).Port
 	targetAddr := &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: targetPort}
 	r := &udpRelay{
 		conn:   conn,
+		port:   port,
 		target: targetAddr,
 		stopCh: make(chan struct{}),
 	}
