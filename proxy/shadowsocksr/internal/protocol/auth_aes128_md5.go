@@ -229,8 +229,9 @@ func (a *authAES128) UDPPostDecrypt(data []byte) ([]byte, error) {
 	if len(data) < 4 {
 		return nil, ssr.ErrAuthAES128IncorrectHMAC
 	}
-	a.initUDPUser()
-	want := a.hmac(a.userKey, data[:len(data)-4])[:4]
+	// SSR server replies use the server cipher key, even when client requests
+	// use the per-user key configured by protocol_param.
+	want := a.hmac(a.Key, data[:len(data)-4])[:4]
 	if !bytes.Equal(want, data[len(data)-4:]) {
 		return nil, ssr.ErrAuthAES128IncorrectHMAC
 	}

@@ -26,6 +26,7 @@ type sessionConn struct {
 	writeMu              sync.Mutex
 	globalMu             *sync.Mutex
 	readMu               sync.Mutex
+	protocolMu           sync.Mutex
 	header               []byte
 	headerSent           bool
 	sendIV               []byte
@@ -105,7 +106,7 @@ func (c *sessionConn) Write(data []byte) (int, error) {
 			defer c.globalMu.Unlock()
 		}
 	}
-	framed, err := c.protocol.PreEncrypt(plain)
+	framed, err := c.preEncryptProtocol(plain)
 	if err != nil {
 		return 0, err
 	}
@@ -119,6 +120,26 @@ func (c *sessionConn) Write(data []byte) (int, error) {
 		return 0, err
 	}
 	return len(data), nil
+}
+
+func (c *sessionConn) preEncryptProtocol(data []byte) ([]byte, error) {
+	c.protocolMu.Lock()
+	defer c.protocolMu.Unlock()
+	framed, err := c.protocol.PreEncrypt(data)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), framed...), nil
+}
+
+func (c *sessionConn) postDecryptProtocol(data []byte) ([]byte, int, error) {
+	c.protocolMu.Lock()
+	defer c.protocolMu.Unlock()
+	plain, consumed, err := c.protocol.PostDecrypt(data)
+	if err != nil {
+		return nil, consumed, err
+	}
+	return append([]byte(nil), plain...), consumed, nil
 }
 
 func (c *sessionConn) sendBack() error {
@@ -169,7 +190,7 @@ func (c *sessionConn) Read(dst []byte) (int, error) {
 						return 0, fmt.Errorf("ShadowsocksR protocol buffer exceeds %d bytes", maxSessionBuffer)
 					}
 					c.protocolBuffer.Write(plain)
-					out, consumed, e := c.protocol.PostDecrypt(c.protocolBuffer.Bytes())
+					out, consumed, e := c.postDecryptProtocol(c.protocolBuffer.Bytes())
 					if e != nil {
 						return 0, e
 					}
