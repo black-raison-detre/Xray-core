@@ -1,0 +1,55 @@
+name: Prepare build assets
+
+on:
+  workflow_call:
+    inputs:
+      flavor:
+        description: Geodata source flavor used by this branch
+        required: true
+        type: string
+      include-wintun:
+        description: Whether to prepare Wintun binaries for release packaging
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v7
+
+      - name: Restore prepared asset cache
+        id: asset-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .asset-cache
+          key: xray-assets-${{ inputs.flavor }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            xray-assets-${{ inputs.flavor }}-
+
+      - name: Validate and prepare assets
+        id: prepare-assets
+        env:
+          ASSET_FLAVOR: ${{ inputs.flavor }}
+          INCLUDE_WINTUN: ${{ inputs.include-wintun }}
+        run: bash .github/scripts/prepare-assets.sh
+
+      - name: Save prepared asset cache
+        if: steps.asset-cache.outputs.cache-hit != 'true' || steps.prepare-assets.outputs.updated == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .asset-cache
+          key: xray-assets-${{ inputs.flavor }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload prepared assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepared-assets
+          path: resources/**
+          if-no-files-found: error
+          retention-days: 1
