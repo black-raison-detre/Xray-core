@@ -287,9 +287,14 @@ func (h *Handler) init(ctx context.Context) error {
 	if h.dev != nil {
 		return h.dev.Up()
 	}
-	resolveFunc := h.resolveLocal
+	resolveFunc := func(host string) (net.IP, error) {
+		return h.resolveLocal(ctx, host)
+	}
+	// Reuse the resolved endpoint for ordinary socket creation, avoiding another
+	// system DNS lookup. Explicit socket and proxy policies still need the hostname.
+	var endpointAddress string
 	listenFunc := func() (net.PacketConn, error) {
-		dest, err := net.ParseDestination("udp:" + h.conf.Peers[0].Endpoint)
+		dest, err := net.ParseDestination("udp:" + endpointAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -323,7 +328,39 @@ func (h *Handler) init(ctx context.Context) error {
 		}
 		return pktConn, nil
 	}
-	bind := &bind{}
+	bind := &bind{
+		resolveFunc: resolveFunc,
+		listenFunc:  listenFunc,
+		reserved:    h.conf.Reserved,
+	}
+	// Resolve before creating the device: a canceled lookup must not leave a
+	// partially initialized device owning the handler's TUN and worker goroutines.
+	var cfg strings.Builder
+	cfg.WriteString("private_key=" + h.conf.SecretKey + "\n")
+	for i, peer := range h.conf.Peers {
+		endpoint, err := bind.ParseEndpoint(peer.Endpoint)
+		if err != nil {
+			return err
+		}
+		if i == 0 {
+			endpointAddress = peer.Endpoint
+			sockopt := h.streamSettings.SocketSettings
+			if sockopt == nil || (sockopt.DialerProxy == "" && !sockopt.DomainStrategy.HasStrategy() && sockopt.AddressPortStrategy == internet.AddressPortStrategy_None) {
+				endpointAddress = endpoint.DstToString()
+			}
+		}
+		cfg.WriteString("public_key=" + peer.PublicKey + "\n")
+		if peer.PreSharedKey != "" {
+			cfg.WriteString("preshared_key=" + peer.PreSharedKey + "\n")
+		}
+		cfg.WriteString("endpoint=" + endpoint.DstToString() + "\n")
+		for _, ip := range peer.AllowedIps {
+			cfg.WriteString("allowed_ip=" + ip + "\n")
+		}
+		if peer.KeepAlive != "" {
+			cfg.WriteString("persistent_keepalive_interval=" + peer.KeepAlive + "\n")
+		}
+	}
 	logger := &device.Logger{
 		Verbosef: func(format string, args ...any) {
 			log.Record(&log.GeneralMessage{
@@ -339,25 +376,7 @@ func (h *Handler) init(ctx context.Context) error {
 		},
 	}
 	dev := device.NewDevice(h.tun, bind, logger)
-	bind.resolveFunc = resolveFunc
-	bind.listenFunc = listenFunc
 	bind.downFunc = dev.Down
-	bind.reserved = h.conf.Reserved
-	var cfg strings.Builder
-	cfg.WriteString("private_key=" + h.conf.SecretKey + "\n")
-	for _, peer := range h.conf.Peers {
-		cfg.WriteString("public_key=" + peer.PublicKey + "\n")
-		if peer.PreSharedKey != "" {
-			cfg.WriteString("preshared_key=" + peer.PreSharedKey + "\n")
-		}
-		cfg.WriteString("endpoint=" + peer.Endpoint + "\n")
-		for _, ip := range peer.AllowedIps {
-			cfg.WriteString("allowed_ip=" + ip + "\n")
-		}
-		if peer.KeepAlive != "" {
-			cfg.WriteString("persistent_keepalive_interval=" + peer.KeepAlive + "\n")
-		}
-	}
 	err := dev.IpcSet(cfg.String())
 	if err != nil {
 		return err
@@ -370,10 +389,32 @@ func (h *Handler) init(ctx context.Context) error {
 	return nil
 }
 
-func (h *Handler) resolveLocal(host string) (net.IP, error) {
+func (h *Handler) resolveLocal(ctx context.Context, host string) (net.IP, error) {
 	return h.resolveDomain(host, h.conf.DomainStrategy, func(host string) ([]net.IP, uint32, error) {
-		return h.dns.LookupIP(host, dns.IPOption{IPv4Enable: true, IPv6Enable: true})
+		return lookupIPContext(ctx, h.dns, host)
 	})
+}
+
+func lookupIPContext(ctx context.Context, d dns.Client, host string) ([]net.IP, uint32, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	type result struct {
+		ips []net.IP
+		ttl uint32
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		ips, ttl, err := d.LookupIP(host, dns.IPOption{IPv4Enable: true, IPv6Enable: true})
+		done <- result{ips, ttl, err}
+	}()
+	select {
+	case r := <-done:
+		return r.ips, r.ttl, r.err
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	}
 }
 
 func (h *Handler) resolveRemote(host string) (net.IP, error) {
