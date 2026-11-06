@@ -2,6 +2,23 @@
 
 Scope: maintain `v26.7.11-custom` at `075ec011` with selected upstream correctness fixes only. Older feature-port and behavior-change tasks below are deferred and require separate authorization; do not merge upstream functionality, TUN rewrites, TLS trust defaults, Lua, or dependency/toolchain migrations as part of this maintenance.
 
+## DNS and connection correctness backports (2026-11-06)
+
+Baseline: GUI-tracked `fa617e4971b58cf72761fbae361f46cb9cbd952c`. Apply only the four selected upstream fixes, retaining the existing dependencies and private features.
+
+- [x] Guard oversized synthesized A/AAAA DNS replies before resizing the fixed buffer, and return after a message-build failure ([#7225](https://github.com/XTLS/Xray-core/pull/7225), `5865e3ac`). Oversized replies are dropped and their connection timer is expired, following upstream behavior.
+- [x] Return `ErrReadTimeout` from `TimeoutWrapperReader` so an initial payload timeout does not write an empty request body and prematurely finish server-first VMess requests ([#7327](https://github.com/XTLS/Xray-core/pull/7327), `a52db8f6`).
+- [x] Report WebSocket close statuses 1000 and 1005 as `io.EOF`, allowing queued responses to drain; other close statuses remain errors ([#7236](https://github.com/XTLS/Xray-core/pull/7236), `ec124ff9`).
+- [x] Explicitly disable listener MPTCP by default while retaining `tcpMptcp: true` opt-in ([#7291](https://github.com/XTLS/Xray-core/pull/7291), `6ea0ab5d`). This is upstream's listener hardening for Linux, not a replacement for kernel security updates. Outbound dialer behavior is unchanged.
+- [x] Add A/AAAA normal and oversized response regressions, a timeout/pending-payload regression, real localhost WebSocket payload/close-code tests, and a Linux listener socket-protocol test. Go overlays of the original implementations reproduce all four defects; the patched regressions pass.
+- [x] Run `go test -race -count=1 -timeout 3m ./common/buf ./proxy/dns ./transport/internet/websocket ./transport/internet` with Go 1.27.3 on Darwin/arm64: all four packages pass.
+- [x] Run the four new regressions with Go 1.27.3 on Linux/arm64 in the existing `xray-linux` VM, with container networking disabled. The MPTCP positive control succeeds; nil/default/disabled settings create TCP sockets and explicit opt-in creates an MPTCP socket. The original listener source fails all three default-off cases. This checks actual listener protocols, not remote MPTCP negotiation.
+- [x] Run `go test -timeout 1h -v ./...`: exited 1. Public `app/dns/TestDOHNameServerWithIPv6Override` reports no record and `transport/internet/tls/TestECHDial` panics after Cloudflare HTTPS returns EOF. Scenario and Sudoku fixture subprocesses also initially fail because the default Go cache is not writable; rerunning both complete packages with a task-local `GOCACHE` passes (`testing/scenarios` 280.044s, `transport/internet/finalmask/sudoku` 35.368s). The full-suite result remains a failure.
+- [x] Build and launch release-style Darwin/arm64 and Linux/arm64 CLIs with Go 1.27.3. Cross-build the Windows/amd64 CLI and test binaries for all four changed packages. Windows results are compilation evidence only, not native execution or packaged GUI proof.
+- [x] Pass the repository vformat check, scoped gofumpt checks, and `git diff --check`. Verify the eight implementation/test files and unchanged module files match the Linux-tested snapshot. No generated protobuf, dependency, or GUI gitlink changes are made.
+
+Validation logs, source manifest, baseline listener overlay, and build artifacts: `/tmp/xray-four-backports-validation/`. The task container was removed, the VM restored to Stopped, and the Docker context kept at `default`. No managed GUI sidecar is staged or installed by this maintenance; publishing and updating its checksum-verified artifact remain separate steps.
+
 ## CA security backport (2026-10-29)
 
 The requested security exception to the toolchain deferral above follows [upstream v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21). This branch uses OS roots and does not contain the bundled RootCAs feature or its fallback dependency, so the dependency-only change in [#7212](https://github.com/XTLS/Xray-core/pull/7212) does not apply here.
