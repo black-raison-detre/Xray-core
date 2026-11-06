@@ -4,12 +4,8 @@ package tun
 
 import (
 	"crypto/md5"
-	"encoding/binary"
 	go_errors "errors"
-	"net"
 	"net/netip"
-	"sort"
-	"strings"
 	"sync"
 	"unsafe"
 
@@ -31,13 +27,12 @@ func procyield(cycles uint32)
 type WindowsTun struct {
 	sync.RWMutex
 
-	options        *Config
-	adapter        *wintun.Adapter
-	session        wintun.Session
-	readWait       windows.Handle
-	luid           winipcfg.LUID
-	changeCallback winipcfg.ChangeCallback
-	closed         bool
+	options  *Config
+	adapter  *wintun.Adapter
+	session  wintun.Session
+	readWait windows.Handle
+	luid     winipcfg.LUID
+	closed   bool
 }
 
 // WindowsTun implements Tun
@@ -177,15 +172,6 @@ func (t *WindowsTun) Start() error {
 		}
 	}
 
-	if updater != nil {
-		t.changeCallback, err = winipcfg.RegisterInterfaceChangeCallback(func(notificationType winipcfg.MibNotificationType, iface *winipcfg.MibIPInterfaceRow) {
-			updater.Update()
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -197,9 +183,6 @@ func (t *WindowsTun) Close() error {
 	}
 	t.closed = true
 
-	if t.changeCallback != nil {
-		t.changeCallback.Unregister()
-	}
 	t.session.End()
 	_ = t.adapter.Close()
 
@@ -284,102 +267,3 @@ const (
 	IP_UNICAST_IF   = 31
 	IPV6_UNICAST_IF = 31
 )
-
-func setinterface(network, address string, fd uintptr, iface *net.Interface) error {
-	var index [4]byte
-	binary.BigEndian.PutUint32(index[:], uint32(iface.Index))
-
-	var err1, err2, err3, err4 error
-
-	switch network {
-	case "tcp6", "udp6", "ip6":
-		err1 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, IPV6_UNICAST_IF, iface.Index)
-		if network == "udp6" {
-			err2 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windows.IPV6_MULTICAST_IF, iface.Index)
-		}
-		fallthrough
-	case "tcp4", "udp4", "ip4":
-		err3 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, IP_UNICAST_IF, *(*int)(unsafe.Pointer(&index[0])))
-		if network == "udp4" || network == "udp6" {
-			err4 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_MULTICAST_IF, *(*int)(unsafe.Pointer(&index[0])))
-		}
-	default:
-		panic(network + " " + address)
-	}
-
-	return errors.Combine(err1, err2, err3, err4)
-}
-
-func findOutboundInterface(tunIndex int, fixedName string) (*net.Interface, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	if fixedName != "" {
-		for _, iface := range interfaces {
-			if iface.Index != tunIndex && iface.Name == fixedName {
-				return &iface, nil
-			}
-		}
-		return nil, nil
-	}
-
-	var candidates []struct {
-		index int
-		score int
-	}
-	for i, iface := range interfaces {
-		if iface.Index == tunIndex {
-			continue
-		}
-		if strings.Contains(iface.Name, "vEthernet") {
-			continue
-		}
-		if iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		if iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil || len(addrs) == 0 {
-			continue
-		}
-		candidates = append(candidates, struct {
-			index int
-			score int
-		}{i, scoreWindowsInterface(&iface, addrs)})
-	}
-
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		return interfaces[candidates[i].index].Name < interfaces[candidates[j].index].Name
-	})
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-
-	iface := interfaces[candidates[0].index]
-	return &iface, nil
-}
-
-func scoreWindowsInterface(iface *net.Interface, addrs []net.Addr) int {
-	score := 0
-
-	name := strings.ToLower(iface.Name)
-	if strings.Contains(name, "wlan") || strings.Contains(name, "wi-fi") {
-		score += 2
-	}
-
-	for _, addr := range addrs {
-		if strings.HasPrefix(addr.String(), "192.168.") {
-			score++
-			break
-		}
-	}
-
-	return score
-}

@@ -26,6 +26,8 @@ type LinuxTun struct {
 	options *Config
 	ownsTun bool
 
+	outboundUpdater *InterfaceUpdater
+
 	interfaceAddresses []netlink.Addr
 	systemRoutes       []netlink.Route
 	routeMonitorStop   chan struct{}
@@ -184,12 +186,16 @@ func (t *LinuxTun) Start() error {
 		return err
 	}
 
-	if updater != nil {
+	if t.outboundUpdater != nil {
 		t.routeMonitorStop = make(chan struct{})
 		go t.monitorRouteChanges()
 	}
 
 	return nil
+}
+
+func (t *LinuxTun) setOutboundUpdater(updater *InterfaceUpdater) {
+	t.outboundUpdater = updater
 }
 
 // Close is called to shut down the tun interface
@@ -320,15 +326,15 @@ func (t *LinuxTun) monitorRouteChanges() {
 			if !ok {
 				return
 			}
-			if updater != nil {
-				updater.Update()
+			if t.outboundUpdater != nil {
+				t.outboundUpdater.Update()
 			}
 		case _, ok := <-linkCh:
 			if !ok {
 				return
 			}
-			if updater != nil {
-				updater.Update()
+			if t.outboundUpdater != nil {
+				t.outboundUpdater.Update()
 			}
 		case <-t.routeMonitorStop:
 			return

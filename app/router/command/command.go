@@ -7,6 +7,7 @@ import (
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
 	"google.golang.org/grpc"
@@ -79,6 +80,65 @@ func (s *routingServer) ListRule(ctx context.Context, request *ListRuleRequest) 
 		return response, nil
 	}
 	return nil, errors.New("unsupported router implementation")
+}
+
+func (s *routingServer) GetEgressStatus(ctx context.Context, request *GetEgressStatusRequest) (*GetEgressStatusResponse, error) {
+	if request == nil {
+		request = &GetEgressStatusRequest{}
+	}
+	snapshot := egress.Status(ctx, egress.Request{
+		Preview:            request.Preview,
+		Refresh:            request.Refresh,
+		InterfaceName:      request.InterfaceName,
+		ExcludedInterfaces: request.ExcludedInterfaces,
+	})
+	response := &GetEgressStatusResponse{
+		State:               snapshot.State,
+		Mode:                snapshot.Mode,
+		ConfiguredInterface: snapshot.ConfiguredInterface,
+		Generation:          snapshot.Generation,
+		Ipv4:                egressFamilyMessage(snapshot.IPv4),
+		Ipv6:                egressFamilyMessage(snapshot.IPv6),
+		Candidates:          make([]*EgressCandidate, 0, len(snapshot.Candidates)),
+		Error:               snapshot.Error,
+	}
+	if !snapshot.ObservedAt.IsZero() {
+		response.ObservedAt = snapshot.ObservedAt.Format(time.RFC3339Nano)
+	}
+	for _, candidate := range snapshot.Candidates {
+		response.Candidates = append(response.Candidates, &EgressCandidate{
+			Family:          candidate.Family,
+			Interface:       egressInterfaceMessage(candidate.Interface),
+			Eligible:        candidate.Eligible,
+			Reasons:         append([]string(nil), candidate.Reasons...),
+			RouteMetric:     candidate.RouteMetric,
+			InterfaceMetric: candidate.InterfaceMetric,
+		})
+	}
+	return response, nil
+}
+
+func egressFamilyMessage(family egress.FamilyStatus) *EgressFamilyStatus {
+	return &EgressFamilyStatus{
+		State:           family.State,
+		Interface:       egressInterfaceMessage(family.Interface),
+		Reason:          family.Reason,
+		RouteMetric:     family.RouteMetric,
+		InterfaceMetric: family.InterfaceMetric,
+	}
+}
+
+func egressInterfaceMessage(iface *egress.Interface) *EgressInterface {
+	if iface == nil {
+		return nil
+	}
+	return &EgressInterface{
+		Name:      iface.Name,
+		Index:     iface.Index,
+		Ipv6Index: iface.IPv6Index,
+		Luid:      iface.LUID,
+		Addresses: append([]string(nil), iface.Addresses...),
+	}
 }
 
 // NewRoutingServer creates a statistics service with statistics manager.

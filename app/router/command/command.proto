@@ -115,6 +115,50 @@ message ListRuleResponse{
   repeated ListRuleItem rules = 1;
 }
 
+message GetEgressStatusRequest {
+  bool preview = 1;
+  string interface_name = 2;
+  repeated string excluded_interfaces = 3;
+  bool refresh = 4;
+}
+
+message EgressInterface {
+  string name = 1;
+  uint32 index = 2;
+  uint32 ipv6_index = 3;
+  string luid = 4;
+  repeated string addresses = 5;
+}
+
+message EgressFamilyStatus {
+  string state = 1;
+  EgressInterface interface = 2;
+  string reason = 3;
+  uint32 route_metric = 4;
+  uint32 interface_metric = 5;
+}
+
+message EgressCandidate {
+  EgressInterface interface = 1;
+  bool eligible = 2;
+  repeated string reasons = 3;
+  uint32 route_metric = 4;
+  uint32 interface_metric = 5;
+  string family = 6;
+}
+
+message GetEgressStatusResponse {
+  string state = 1;
+  string mode = 2;
+  string configured_interface = 3;
+  uint64 generation = 4;
+  string observed_at = 5;
+  EgressFamilyStatus ipv4 = 6;
+  EgressFamilyStatus ipv6 = 7;
+  repeated EgressCandidate candidates = 8;
+  string error = 9;
+}
+
 service RoutingService {
   rpc SubscribeRoutingStats(SubscribeRoutingStatsRequest)
       returns (stream RoutingContext) {}
@@ -127,6 +171,7 @@ service RoutingService {
   rpc RemoveRule(RemoveRuleRequest) returns (RemoveRuleResponse) {}
 
   rpc ListRule(ListRuleRequest) returns (ListRuleResponse) {}
+  rpc GetEgressStatus(GetEgressStatusRequest) returns (GetEgressStatusResponse) {}
 }
 
 message Config {}

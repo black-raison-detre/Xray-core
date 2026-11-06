@@ -155,6 +155,48 @@ func TestServiceSubscribeRoutingStats(t *testing.T) {
 	}
 }
 
+func TestServiceGetEgressStatusPreview(t *testing.T) {
+	lis := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	RegisterRoutingServiceServer(server, NewRoutingServer(nil, nil))
+	go func() { _ = server.Serve(lis) }()
+	t.Cleanup(func() {
+		server.Stop()
+		_ = lis.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	connection, err := grpc.DialContext(
+		ctx, "bufnet-egress",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	response, err := NewRoutingServiceClient(connection).GetEgressStatus(ctx, &GetEgressStatusRequest{
+		Preview:            true,
+		InterfaceName:      "Ethernet",
+		ExcludedInterfaces: []string{"Xray-GUI TUN"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Mode != "fixed" || response.ConfiguredInterface != "Ethernet" {
+		t.Fatalf("unexpected preview mode: mode=%q interface=%q", response.Mode, response.ConfiguredInterface)
+	}
+	if response.Ipv4 == nil || response.Ipv6 == nil {
+		t.Fatalf("missing family statuses: %+v", response)
+	}
+	if response.State == "" {
+		t.Fatalf("missing overall state: %+v", response)
+	}
+}
+
 func TestServiceSubscribeSubsetOfFields(t *testing.T) {
 	c := stats.NewChannel(&stats.ChannelConfig{
 		SubscriberLimit: 1,

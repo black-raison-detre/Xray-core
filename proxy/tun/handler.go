@@ -3,9 +3,6 @@ package tun
 import (
 	"context"
 	"math"
-	"net/netip"
-	"strings"
-	"syscall"
 	"time"
 
 	observatoryapp "github.com/xtls/xray-core/app/observatory"
@@ -18,12 +15,12 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/transport"
-	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
@@ -45,6 +42,8 @@ type Handler struct {
 	uplinkCounter   stats.Counter
 	downlinkCounter stats.Counter
 	observatory     extension.Observatory
+	egressManager   *egress.Manager
+	outboundClose   func()
 }
 
 // ConnectionHandler interface with the only method that stack is going to push new connections to
@@ -146,34 +145,11 @@ func (t *Handler) Start() error {
 			_ = tunInterface.Close()
 			return err
 		}
-		if t.config.AutoOutboundsInterface == "auto" {
-			t.config.AutoOutboundsInterface = ""
+		if err := configureOutboundInterface(t, tunInterface, tunIndex); err != nil {
+			_ = tunInterface.Close()
+			t.closeOutboundInterface()
+			return err
 		}
-		updater = &InterfaceUpdater{tunIndex: tunIndex, fixedName: t.config.AutoOutboundsInterface}
-		updater.Update()
-		internet.RegisterDialerController(func(network, address string, c syscall.RawConn) error {
-			iface := updater.Get()
-			if iface == nil {
-				errors.LogInfo(context.Background(), "[tun] falied to set interface > iface == nil")
-				return errors.New("iface not found")
-			}
-			var controlErr, sockErr error
-			controlErr = c.Control(func(fd uintptr) {
-				addrPort, _ := netip.ParseAddrPort(address)
-				// skip loopback
-				if addrPort.Addr().IsLoopback() || strings.HasPrefix(strings.ToLower(address), "localhost:") {
-					return
-				}
-				err := setinterface(network, address, fd, iface)
-				if err != nil {
-					sockErr = errors.New("[tun] falied to set interface").Base(err)
-				}
-			})
-			if sockErr != nil {
-				return sockErr
-			}
-			return controlErr
-		})
 	}
 
 	errors.LogInfo(t.ctx, tunName, " created")
@@ -185,6 +161,7 @@ func (t *Handler) Start() error {
 	tunStack, err := NewStack(t.ctx, tunStackOptions, t)
 	if err != nil {
 		_ = tunInterface.Close()
+		t.closeOutboundInterface()
 		return err
 	}
 
@@ -192,6 +169,7 @@ func (t *Handler) Start() error {
 	if err != nil {
 		_ = tunStack.Close()
 		_ = tunInterface.Close()
+		t.closeOutboundInterface()
 		return err
 	}
 
@@ -199,6 +177,7 @@ func (t *Handler) Start() error {
 	if err != nil {
 		_ = tunStack.Close()
 		_ = tunInterface.Close()
+		t.closeOutboundInterface()
 		return err
 	}
 
@@ -273,7 +252,21 @@ func (t *Handler) Close() error {
 	if t.cancel != nil {
 		t.cancel()
 	}
-	return errors.Combine(common.CloseIfExists(t.stack), common.CloseIfExists(t.tun))
+	stackErr := common.CloseIfExists(t.stack)
+	tunErr := common.CloseIfExists(t.tun)
+	t.closeOutboundInterface()
+	return errors.Combine(stackErr, tunErr)
+}
+
+func (t *Handler) closeOutboundInterface() {
+	if t.egressManager != nil {
+		t.egressManager.Close()
+		t.egressManager = nil
+	}
+	if t.outboundClose != nil {
+		t.outboundClose()
+		t.outboundClose = nil
+	}
 }
 
 // Network implements proxy.Inbound

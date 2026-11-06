@@ -46,6 +46,8 @@ type DarwinTun struct {
 	tunFd   int
 	ownsFd  bool // true for macOS (we created the fd), false for iOS (fd from system)
 
+	outboundUpdater *InterfaceUpdater
+
 	// Genuinely blocks Wait() until tunFd is readable, instead of the
 	// previous procyield-only busy-spin (dispatchLoop in
 	// stack_gvisor_endpoint.go calls ReadPacket() then Wait() in a tight
@@ -210,7 +212,7 @@ func (t *DarwinTun) Start() error {
 		return err
 	}
 
-	if updater != nil {
+	if t.outboundUpdater != nil {
 		fd, err := unix.Socket(unix.AF_ROUTE, unix.SOCK_RAW, 0)
 		if err != nil {
 			_ = t.unsetSystemRoutes()
@@ -220,6 +222,10 @@ func (t *DarwinTun) Start() error {
 		go t.monitorRouteChanges()
 	}
 	return nil
+}
+
+func (t *DarwinTun) setOutboundUpdater(updater *InterfaceUpdater) {
+	t.outboundUpdater = updater
 }
 
 func (t *DarwinTun) Close() error {
@@ -248,8 +254,8 @@ func (t *DarwinTun) monitorRouteChanges() {
 			}
 			return
 		}
-		if updater != nil {
-			updater.Update()
+		if t.outboundUpdater != nil {
+			t.outboundUpdater.Update()
 		}
 	}
 }

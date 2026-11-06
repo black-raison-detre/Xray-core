@@ -1,3 +1,27 @@
+# Windows route-metric egress selection (2026-11-06)
+
+Scope: a separately authorized feature for the paired Xray-GUI integration; it
+does not expand the `v26.7.11-custom` upstream-bugfix maintenance scope below.
+
+- [x] Select IPv4 and IPv6 default-route adapters independently using route plus
+  family-interface metrics; preserve fixed adapter selection and exclude the
+  app-owned TUN, loopback, down, and explicitly excluded adapters.
+- [x] Publish one immutable active binding snapshot to the socket binder and
+  read-only `RoutingService.GetEgressStatus`; refresh on route, interface, and
+  unicast-address changes, with a five-second periodic fallback.
+- [x] Preserve dual-stack UDP packet connections while capturing both family
+  bindings once per socket; bind each available family and guard writes to
+  unavailable families on the underlying packet connection.
+- [x] Add the read-only `xray egress` JSON preflight and deterministic selector,
+  RPC, loopback-binding, mixed-family UDP, and bounded-refresh regressions.
+- [x] Pass focused host tests and Windows/amd64 package-test cross-compilation.
+- [ ] Run native Windows route/interface selection and packaged GUI usage smoke;
+  cross-compilation does not verify Windows route tables or socket binding.
+
+The selector does not probe endpoint reachability or claim proxy connectivity.
+It only reports the adapter Windows' default-route metrics select and binds new
+TUN outbound sockets to that adapter for the matching address family.
+
 # Bugfix-only maintenance (2026-10-19)
 
 Scope: maintain `v26.7.11-custom` at `075ec011` with selected upstream correctness fixes only. Older feature-port and behavior-change tasks below are deferred and require separate authorization; do not merge upstream functionality, TUN rewrites, TLS trust defaults, Lua, or dependency/toolchain migrations as part of this maintenance.
