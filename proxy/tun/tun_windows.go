@@ -3,13 +3,16 @@
 package tun
 
 import (
+	"context"
 	"crypto/md5"
 	go_errors "errors"
 	"net/netip"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/features/egress"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wintun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
@@ -27,12 +30,16 @@ func procyield(cycles uint32)
 type WindowsTun struct {
 	sync.RWMutex
 
-	options  *Config
-	adapter  *wintun.Adapter
-	session  wintun.Session
-	readWait windows.Handle
-	luid     winipcfg.LUID
-	closed   bool
+	options    *Config
+	adapter    *wintun.Adapter
+	session    wintun.Session
+	readWait   windows.Handle
+	luid       winipcfg.LUID
+	closed     bool
+	dnsStop    chan struct{}
+	dnsDone    chan struct{}
+	dnsApplied *tunDNSPlan
+	dnsErr     string
 }
 
 // WindowsTun implements Tun
@@ -157,7 +164,12 @@ func (t *WindowsTun) Start() error {
 		}
 	}
 
-	if len(t.options.DNS) > 0 {
+	if t.options.GetAutoDns() {
+		if err := t.updateAutoDNS(); err != nil {
+			return errors.New("unable to set live TUN DNS servers").Base(err)
+		}
+		t.startAutoDNSRefresh()
+	} else if len(t.options.DNS) > 0 {
 		dns := make([]netip.Addr, 0, len(t.options.DNS))
 		for _, ip := range t.options.DNS {
 			dns = append(dns, netip.MustParseAddr(ip))
@@ -177,16 +189,90 @@ func (t *WindowsTun) Start() error {
 
 func (t *WindowsTun) Close() error {
 	t.Lock()
-	defer t.Unlock()
 	if t.closed {
+		t.Unlock()
 		return nil
 	}
 	t.closed = true
+	stop, done := t.dnsStop, t.dnsDone
+	if stop != nil {
+		close(stop)
+	}
+	t.Unlock()
+	if done != nil {
+		<-done
+	}
+	t.Lock()
+	defer t.Unlock()
 
 	t.session.End()
 	_ = t.adapter.Close()
 
 	return nil
+}
+
+func (t *WindowsTun) updateAutoDNS() error {
+	snapshot := egress.DNSUpdateSnapshot()
+	plan := planTUNAdapterDNS(snapshot)
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return errors.New("TUN interface is closed")
+	}
+	if equalTUNDNSPlan(t.dnsApplied, &plan) {
+		egress.ReportAdapterDNSUpdateSuccess(plan.generation)
+		t.dnsErr = ""
+		return nil
+	}
+	if err := t.luid.SetDNS(windows.AF_INET, plan.ipv4, nil); err != nil {
+		t.reportAutoDNSError(err)
+		return errors.New("failed to apply IPv4 TUN DNS settings").Base(err)
+	}
+	if err := t.luid.SetDNS(windows.AF_INET6, plan.ipv6, nil); err != nil {
+		t.reportAutoDNSError(err)
+		return errors.New("failed to apply IPv6 TUN DNS settings").Base(err)
+	}
+	t.dnsApplied = &plan
+	t.dnsErr = ""
+	egress.ReportAdapterDNSUpdateSuccess(plan.generation)
+	return nil
+}
+
+func (t *WindowsTun) reportAutoDNSError(err error) {
+	wrapped := errors.New("set app-owned TUN adapter DNS: ").Base(err)
+	egress.ReportAdapterDNSUpdateError(wrapped)
+	if t.dnsErr != wrapped.Error() {
+		t.dnsErr = wrapped.Error()
+		errors.LogError(context.Background(), wrapped)
+	}
+}
+
+func (t *WindowsTun) startAutoDNSRefresh() {
+	t.Lock()
+	if t.closed || t.dnsStop != nil {
+		t.Unlock()
+		return
+	}
+	t.dnsStop = make(chan struct{})
+	t.dnsDone = make(chan struct{})
+	stop, done := t.dnsStop, t.dnsDone
+	t.Unlock()
+
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if err := t.updateAutoDNS(); err != nil {
+					continue
+				}
+			}
+		}
+	}()
 }
 
 func (t *WindowsTun) Name() (string, error) {

@@ -26,13 +26,26 @@ func collect(Options) (Observation, error) {
 	adapterByLUID := make(map[string]int, len(adapters))
 	for _, adapter := range adapters {
 		luid := strconv.FormatUint(uint64(adapter.LUID), 10)
+		dnsServers := make([]string, 0, 2)
+		for server := adapter.FirstDNSServerAddress; server != nil; server = server.Next {
+			address := server.Address.IP()
+			if len(address) == 0 {
+				continue
+			}
+			parsed, ok := netip.AddrFromSlice(address)
+			if !ok || !usableDNSServer(parsed) {
+				continue
+			}
+			dnsServers = append(dnsServers, parsed.String())
+		}
 		adapterByLUID[luid] = len(observation.Adapters)
 		observation.Adapters = append(observation.Adapters, AdapterObservation{
 			Interface: Interface{
-				Name:      adapter.FriendlyName(),
-				Index:     adapter.IfIndex,
-				IPv6Index: adapter.IPv6IfIndex,
-				LUID:      luid,
+				Name:       adapter.FriendlyName(),
+				Index:      adapter.IfIndex,
+				IPv6Index:  adapter.IPv6IfIndex,
+				LUID:       luid,
+				DNSServers: dnsServers,
 			},
 			Up:       adapter.OperStatus == winipcfg.IfOperStatusUp,
 			Loopback: adapter.IfType == winipcfg.IfTypeSoftwareLoopback,

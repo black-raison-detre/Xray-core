@@ -25,6 +25,12 @@ func TestSelectAutoUsesFamilyDefaultRouteAndCombinedMetrics(t *testing.T) {
 	if snapshot.IPv6.RouteMetric != 3 || snapshot.IPv6.InterfaceMetric != 2 {
 		t.Fatalf("IPv6 metrics = (%d, %d); want (3, 2)", snapshot.IPv6.RouteMetric, snapshot.IPv6.InterfaceMetric)
 	}
+	if got := snapshot.IPv4.Interface.DNSServers; len(got) != 1 || got[0] != "192.0.2.53" {
+		t.Fatalf("IPv4 selected DNS servers = %v; want Ethernet's IPv4 DNS", got)
+	}
+	if got := snapshot.IPv6.Interface.DNSServers; len(got) != 1 || got[0] != "2001:db8::53" {
+		t.Fatalf("IPv6 selected DNS servers = %v; want Wi-Fi's IPv6 DNS", got)
+	}
 	if snapshot.IPv4.State != "detected" || snapshot.IPv6.State != "detected" {
 		t.Fatalf("preview family states = %q/%q; want detected/detected", snapshot.IPv4.State, snapshot.IPv6.State)
 	}
@@ -151,6 +157,42 @@ func TestFixedFamilyWithRemovedAddressBecomesUnavailable(t *testing.T) {
 	}
 }
 
+func TestDNSLeaseChangeOnSameAdapterChangesSelectionGeneration(t *testing.T) {
+	observation := testObservation()
+	previous := Select(observation, Options{}, true)
+	observation.Adapters[1].Interface.DNSServers = []string{"192.0.2.54"}
+	updated := Select(observation, Options{}, true)
+	if updated.IPv4.Interface == nil || updated.IPv4.Interface.LUID != previous.IPv4.Interface.LUID {
+		t.Fatalf("adapter identity changed during DNS lease update: previous=%+v updated=%+v", previous.IPv4.Interface, updated.IPv4.Interface)
+	}
+	if selectionSignature(previous) == selectionSignature(updated) {
+		t.Fatal("DNS lease change on the same adapter did not change the selection signature")
+	}
+	if luid, servers := DNSForFamily(updated, "ipv4"); luid != "ethernet" || len(servers) != 1 || servers[0] != "192.0.2.54" {
+		t.Fatalf("updated IPv4 DNS selection = (%q, %v)", luid, servers)
+	}
+}
+
+func TestDNSForFamilyRejectsWrongFamilyLoopbackAndUnavailableSelection(t *testing.T) {
+	observation := testObservation()
+	observation.Adapters[1].Interface.DNSServers = []string{"127.0.0.53", "2001:db8::53", "192.0.2.53"}
+	snapshot := Select(observation, Options{}, true)
+	if luid, servers := DNSForFamily(snapshot, "ipv4"); luid != "ethernet" || len(servers) != 1 || servers[0] != "192.0.2.53" {
+		t.Fatalf("IPv4 DNS selection = (%q, %v), want only Ethernet's usable IPv4 resolver", luid, servers)
+	}
+	if luid, servers := DNSForFamily(snapshot, "ipv6"); luid != "wifi" || len(servers) != 1 || servers[0] != "2001:db8::53" {
+		t.Fatalf("IPv6 DNS selection = (%q, %v), want only Wi-Fi's usable IPv6 resolver", luid, servers)
+	}
+	snapshot.State = "error"
+	if luid, servers := DNSForFamily(snapshot, "ipv4"); luid != "" || len(servers) != 0 {
+		t.Fatalf("error snapshot exposed stale IPv4 DNS: (%q, %v)", luid, servers)
+	}
+	missing := Select(Observation{IPv4Supported: true, IPv6Supported: true}, Options{}, true)
+	if luid, servers := DNSForFamily(missing, "ipv4"); luid != "" || len(servers) != 0 {
+		t.Fatalf("unavailable selection exposed fallback DNS: (%q, %v)", luid, servers)
+	}
+}
+
 func TestSelectRejectsNonUplinkAddressKinds(t *testing.T) {
 	observation := testObservation()
 	observation.Adapters[0].Interface.Addresses = []string{"127.0.0.1/8", "fe80::1/64", "ff02::1/128"}
@@ -180,13 +222,13 @@ func testObservation() Observation {
 		IPv6Supported: true,
 		Adapters: []AdapterObservation{
 			{
-				Interface:  Interface{Name: "Wi-Fi", Index: 12, IPv6Index: 22, LUID: "wifi", Addresses: []string{"192.0.2.10/24", "2001:db8::10/64"}},
+				Interface:  Interface{Name: "Wi-Fi", Index: 12, IPv6Index: 22, LUID: "wifi", Addresses: []string{"192.0.2.10/24", "2001:db8::10/64"}, DNSServers: []string{"2001:db8::53"}},
 				Up:         true,
 				IPv4Metric: 20,
 				IPv6Metric: 2,
 			},
 			{
-				Interface:  Interface{Name: "Ethernet", Index: 33, IPv6Index: 44, LUID: "ethernet", Addresses: []string{"198.51.100.10/24"}},
+				Interface:  Interface{Name: "Ethernet", Index: 33, IPv6Index: 44, LUID: "ethernet", Addresses: []string{"198.51.100.10/24"}, DNSServers: []string{"192.0.2.53"}},
 				Up:         true,
 				IPv4Metric: 5,
 				IPv6Metric: 30,

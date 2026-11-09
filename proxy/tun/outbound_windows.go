@@ -35,10 +35,10 @@ func configureOutboundInterface(handler *Handler, _ Tun, tunIndex int) error {
 			return nil
 		}
 		var ipv4, ipv6 *egress.Interface
-		if snapshot.IPv4.State == "selected" {
+		if snapshot.State == "active" && snapshot.IPv4.State == "selected" {
 			ipv4 = snapshot.IPv4.Interface
 		}
-		if snapshot.IPv6.State == "selected" {
+		if snapshot.State == "active" && snapshot.IPv6.State == "selected" {
 			ipv6 = snapshot.IPv6.Interface
 		}
 		return &internet.PacketConnPolicy{

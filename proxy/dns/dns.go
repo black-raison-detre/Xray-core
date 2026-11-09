@@ -19,6 +19,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/dns"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/transport"
 	"github.com/xtls/xray-core/transport/internet"
@@ -72,12 +73,14 @@ type ownLinkVerifier interface {
 }
 
 type Handler struct {
-	client          dns.Client
-	fdns            dns.FakeDNSEngine
-	ownLinkVerifier ownLinkVerifier
-	rewriteServer   net.Destination
-	timeout         time.Duration
-	rules           []*DNSRule
+	client              dns.Client
+	fdns                dns.FakeDNSEngine
+	ownLinkVerifier     ownLinkVerifier
+	rewriteServer       net.Destination
+	systemEgressRewrite bool
+	egressSnapshot      func(context.Context) *egress.Snapshot
+	timeout             time.Duration
+	rules               []*DNSRule
 }
 
 func (h *Handler) Init(config *Config, dnsClient dns.Client, policyManager policy.Manager) error {
@@ -90,6 +93,9 @@ func (h *Handler) Init(config *Config, dnsClient dns.Client, policyManager polic
 
 	if config.RewriteServer != nil {
 		h.rewriteServer = config.RewriteServer.AsDestination()
+		if address := config.RewriteServer.Address; address != nil && address.GetDomain() == egress.SystemEgressDNSAddress {
+			h.systemEgressRewrite = true
+		}
 	}
 
 	h.rules = make([]*DNSRule, 0, len(config.Rule))
@@ -113,6 +119,38 @@ func (h *Handler) Init(config *Config, dnsClient dns.Client, policyManager polic
 	}
 
 	return nil
+}
+
+func systemEgressRewriteAddress(original net.Address, snapshot *egress.Snapshot) (net.Address, bool, error) {
+	if !isTUNPeerDNSAddress(original) {
+		return nil, false, nil
+	}
+	// The virtual capture destination's family does not constrain the physical
+	// DNS transport. Either peer must work on an IPv4-only or IPv6-only uplink.
+	families := []string{"ipv4", "ipv6"}
+	if original.IP().To4() == nil {
+		families = []string{"ipv6", "ipv4"}
+	}
+	for _, family := range families {
+		_, servers := egress.DNSForFamily(snapshot, family)
+		if len(servers) == 0 {
+			continue
+		}
+		address := net.ParseAddress(servers[0])
+		if address == nil || !address.Family().IsIP() {
+			return nil, true, errors.New("selected ", family, " DNS server is not numeric")
+		}
+		return address, true, nil
+	}
+	return nil, true, errors.New("no usable DNS server is selected by active TUN egress")
+}
+
+func isTUNPeerDNSAddress(address net.Address) bool {
+	if address == nil || !address.Family().IsIP() {
+		return false
+	}
+	addressIP := address.IP().String()
+	return addressIP == egress.TUNPeerDNSIPv4 || addressIP == egress.TUNPeerDNSIPv6
 }
 
 func (h *Handler) isOwnLink(ctx context.Context) bool {
@@ -163,21 +201,36 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, d internet.
 	srcNetwork := ob.Target.Network
 
 	dest := ob.Target
-	if h.rewriteServer.Network != net.Network_Unknown {
-		dest.Network = h.rewriteServer.Network
-	}
-	if h.rewriteServer.Address != nil {
-		dest.Address = h.rewriteServer.Address
-	}
-	if h.rewriteServer.Port != 0 {
-		dest.Port = h.rewriteServer.Port
+	applyRewrite := !h.systemEgressRewrite || isTUNPeerDNSAddress(ob.Target.Address)
+	if applyRewrite {
+		if h.rewriteServer.Network != net.Network_Unknown {
+			dest.Network = h.rewriteServer.Network
+		}
+		if h.rewriteServer.Address != nil && !h.systemEgressRewrite {
+			dest.Address = h.rewriteServer.Address
+		}
+		if h.rewriteServer.Port != 0 {
+			dest.Port = h.rewriteServer.Port
+		}
 	}
 
 	errors.LogInfo(ctx, "handling DNS traffic to ", dest)
 
 	conn := &outboundConn{
 		dialer: func() (stat.Connection, error) {
-			return d.Dial(ctx, dest)
+			dialDestination := dest
+			if h.systemEgressRewrite {
+				snapshot := egress.Status(ctx, egress.Request{})
+				if h.egressSnapshot != nil {
+					snapshot = h.egressSnapshot(ctx)
+				}
+				if address, matched, err := systemEgressRewriteAddress(ob.Target.Address, snapshot); err != nil {
+					return nil, err
+				} else if matched {
+					dialDestination.Address = address
+				}
+			}
+			return d.Dial(ctx, dialDestination)
 		},
 		connReady: make(chan struct{}, 1),
 	}

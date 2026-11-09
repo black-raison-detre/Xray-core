@@ -57,6 +57,16 @@ func TestTunDescription(t *testing.T) {
 	}
 }
 
+func TestTunAutoDNSConfig(t *testing.T) {
+	message, err := (&TunConfig{AutoDNS: true}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !message.(*tun.Config).GetAutoDns() {
+		t.Fatal("AutoDNS was not mapped into the TUN core config")
+	}
+}
+
 func TestTunRejectsUnknownICMPMode(t *testing.T) {
 	if _, err := (&TunConfig{ICMPMode: "remote"}).Build(); err == nil {
 		t.Fatal("expected unknown icmpMode to fail")

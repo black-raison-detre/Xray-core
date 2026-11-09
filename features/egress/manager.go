@@ -32,12 +32,14 @@ type Manager struct {
 	snapshot   *Snapshot
 	refreshMu  sync.Mutex
 
-	refresh    chan struct{}
-	force      chan chan struct{}
-	stop       chan struct{}
-	done       chan struct{}
-	closeOnce  sync.Once
-	stopNotify func()
+	refresh          chan struct{}
+	force            chan chan struct{}
+	stop             chan struct{}
+	done             chan struct{}
+	closeOnce        sync.Once
+	stopNotify       func()
+	dnsUpdateError   string
+	observationError string
 }
 
 // StartActive selects current adapters and starts notifications plus the
@@ -64,6 +66,7 @@ func StartActive(options Options) (*Manager, error) {
 	}
 	initial.Generation = globalGeneration.Add(1)
 	manager.snapshot = initial
+	manager.observationError = initial.Error
 
 	activeMu.Lock()
 	if activeManager != nil {
@@ -133,7 +136,41 @@ func (m *Manager) Snapshot() *Snapshot {
 	}
 	m.snapshotMu.RLock()
 	defer m.snapshotMu.RUnlock()
-	return cloneSnapshot(m.snapshot)
+	snapshot := cloneSnapshot(m.snapshot)
+	if snapshot.State != "active" {
+		snapshot.IPv4.Interface = nil
+		snapshot.IPv6.Interface = nil
+	}
+	if m.dnsUpdateError != "" {
+		snapshot.State = "error"
+		snapshot.Error = AdapterDNSUpdateError + m.dnsUpdateError
+		snapshot.IPv4.Interface = nil
+		snapshot.IPv4.State = "unavailable"
+		snapshot.IPv4.Reason = "app-owned TUN DNS update failed"
+		snapshot.IPv6.Interface = nil
+		snapshot.IPv6.State = "unavailable"
+		snapshot.IPv6.Reason = "app-owned TUN DNS update failed"
+	}
+	return snapshot
+}
+
+// DNSUpdateSnapshot returns the current physical selection for the app-owned
+// TUN DNS updater, including bindings hidden from public status during a
+// sticky adapter DNS failure.
+func (m *Manager) DNSUpdateSnapshot() *Snapshot {
+	if m == nil {
+		return inactiveSnapshot()
+	}
+	m.snapshotMu.RLock()
+	defer m.snapshotMu.RUnlock()
+	snapshot := cloneSnapshot(m.snapshot)
+	if m.dnsUpdateError != "" {
+		if m.observationError == "" {
+			snapshot.State = "active"
+			snapshot.Error = ""
+		}
+	}
+	return snapshot
 }
 
 // Closed reports whether this updater has cleared its published binding.
@@ -155,12 +192,12 @@ func (m *Manager) BindingForNetwork(network string) *Interface {
 	m.snapshotMu.RLock()
 	defer m.snapshotMu.RUnlock()
 	if strings.HasSuffix(strings.ToLower(network), "6") {
-		if m.snapshot == nil || m.snapshot.IPv6.State != "selected" {
+		if m.snapshot == nil || m.snapshot.State != "active" || m.snapshot.IPv6.State != "selected" {
 			return nil
 		}
 		return copyInterface(m.snapshot.IPv6.Interface)
 	}
-	if m.snapshot == nil || m.snapshot.IPv4.State != "selected" {
+	if m.snapshot == nil || m.snapshot.State != "active" || m.snapshot.IPv4.State != "selected" {
 		return nil
 	}
 	return copyInterface(m.snapshot.IPv4.Interface)
@@ -262,10 +299,15 @@ func (m *Manager) refreshSnapshot() {
 	updated := Select(observation, m.options, true)
 	m.snapshotMu.Lock()
 	defer m.snapshotMu.Unlock()
+	m.observationError = ""
 	if selectionSignature(updated) != selectionSignature(m.snapshot) {
 		updated.Generation = globalGeneration.Add(1)
 	} else {
 		updated.Generation = m.snapshot.Generation
+	}
+	if m.dnsUpdateError != "" {
+		updated.State = "error"
+		updated.Error = AdapterDNSUpdateError + m.dnsUpdateError
 	}
 	m.snapshot = updated
 }
@@ -276,10 +318,57 @@ func (m *Manager) publishRefreshError(message string) {
 	}
 	m.snapshotMu.Lock()
 	defer m.snapshotMu.Unlock()
+	m.observationError = message
 	updated := cloneSnapshot(m.snapshot)
 	updated.State = "error"
 	updated.Error = message
+	updated.IPv4 = FamilyStatus{State: "unavailable", Reason: message}
+	updated.IPv6 = FamilyStatus{State: "unavailable", Reason: message}
+	if m.dnsUpdateError != "" {
+		updated.Error = AdapterDNSUpdateError + m.dnsUpdateError
+	}
 	m.snapshot = updated
+}
+
+// ReportAdapterDNSUpdateError publishes a sticky app-owned TUN DNS failure.
+// It fail-closes selected socket bindings until ReportAdapterDNSUpdateSuccess.
+func (m *Manager) ReportAdapterDNSUpdateError(err error) {
+	if m == nil || err == nil {
+		return
+	}
+	m.snapshotMu.Lock()
+	defer m.snapshotMu.Unlock()
+	m.dnsUpdateError = err.Error()
+	updated := cloneSnapshot(m.snapshot)
+	updated.State = "error"
+	updated.Error = AdapterDNSUpdateError + m.dnsUpdateError
+	m.snapshot = updated
+}
+
+// ReportAdapterDNSUpdateSuccess clears a sticky app-owned TUN DNS failure
+// after both family settings have been applied successfully.
+func (m *Manager) ReportAdapterDNSUpdateSuccess(generation uint64) {
+	if m == nil {
+		return
+	}
+	m.snapshotMu.Lock()
+	defer m.snapshotMu.Unlock()
+	if m.dnsUpdateError == "" {
+		return
+	}
+	if m.snapshot == nil || m.snapshot.Generation != generation {
+		return
+	}
+	m.dnsUpdateError = ""
+	if m.snapshot != nil && strings.HasPrefix(m.snapshot.Error, AdapterDNSUpdateError) {
+		if m.observationError != "" {
+			m.snapshot.State = "error"
+			m.snapshot.Error = m.observationError
+		} else {
+			m.snapshot.State = "active"
+			m.snapshot.Error = ""
+		}
+	}
 }
 
 func selectionSignature(snapshot *Snapshot) string {

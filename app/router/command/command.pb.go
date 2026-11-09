@@ -1002,6 +1002,7 @@ type EgressInterface struct {
 	Ipv6Index     uint32                 `protobuf:"varint,3,opt,name=ipv6_index,json=ipv6Index,proto3" json:"ipv6_index,omitempty"`
 	Luid          string                 `protobuf:"bytes,4,opt,name=luid,proto3" json:"luid,omitempty"`
 	Addresses     []string               `protobuf:"bytes,5,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	DnsServers    []string               `protobuf:"bytes,6,rep,name=dns_servers,json=dnsServers,proto3" json:"dns_servers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1067,6 +1068,13 @@ func (x *EgressInterface) GetLuid() string {
 func (x *EgressInterface) GetAddresses() []string {
 	if x != nil {
 		return x.Addresses
+	}
+	return nil
+}
+
+func (x *EgressInterface) GetDnsServers() []string {
+	if x != nil {
+		return x.DnsServers
 	}
 	return nil
 }
@@ -1448,14 +1456,16 @@ const file_app_router_command_command_proto_rawDesc = "" +
 	"\apreview\x18\x01 \x01(\bR\apreview\x12%\n" +
 	"\x0einterface_name\x18\x02 \x01(\tR\rinterfaceName\x12/\n" +
 	"\x13excluded_interfaces\x18\x03 \x03(\tR\x12excludedInterfaces\x12\x18\n" +
-	"\arefresh\x18\x04 \x01(\bR\arefresh\"\x8c\x01\n" +
+	"\arefresh\x18\x04 \x01(\bR\arefresh\"\xad\x01\n" +
 	"\x0fEgressInterface\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\rR\x05index\x12\x1d\n" +
 	"\n" +
 	"ipv6_index\x18\x03 \x01(\rR\tipv6Index\x12\x12\n" +
 	"\x04luid\x18\x04 \x01(\tR\x04luid\x12\x1c\n" +
-	"\taddresses\x18\x05 \x03(\tR\taddresses\"\xd8\x01\n" +
+	"\taddresses\x18\x05 \x03(\tR\taddresses\x12\x1f\n" +
+	"\vdns_servers\x18\x06 \x03(\tR\n" +
+	"dnsServers\"\xd8\x01\n" +
 	"\x12EgressFamilyStatus\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12F\n" +
 	"\tinterface\x18\x02 \x01(\v2(.xray.app.router.command.EgressInterfaceR\tinterface\x12\x16\n" +

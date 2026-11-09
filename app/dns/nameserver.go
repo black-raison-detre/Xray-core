@@ -13,6 +13,7 @@ import (
 	"github.com/xtls/xray-core/common/utils"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/dns"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/routing"
 )
 
@@ -46,6 +47,9 @@ type Client struct {
 // NewServer creates a name server object according to the network destination url.
 func NewServer(ctx context.Context, dest net.Destination, dispatcher routing.Dispatcher, disableCache bool, serveStale bool, serveExpiredTTL uint32, clientIP net.IP) (Server, error) {
 	if address := dest.Address; address.Family().IsDomain() {
+		if address.Domain() == egress.SystemEgressDNSAddress {
+			return NewSystemEgressNameServer(dispatcher, disableCache, serveStale, serveExpiredTTL, clientIP, dest.Port), nil
+		}
 		u, err := url.Parse(address.Domain())
 		if err != nil {
 			return nil, err

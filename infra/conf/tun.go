@@ -20,6 +20,7 @@ type TunConfig struct {
 	AutoSystemRoutingTable []string `json:"autoSystemRoutingTable"`
 	AutoOutboundsInterface *string  `json:"autoOutboundsInterface"`
 	ICMPMode               string   `json:"icmpMode"`
+	AutoDNS                bool     `json:"autoDNS"`
 }
 
 func (v *TunConfig) Build() (proto.Message, error) {
@@ -29,6 +30,7 @@ func (v *TunConfig) Build() (proto.Message, error) {
 		MTU:                    v.MTU,
 		Gateway:                v.Gateway,
 		DNS:                    v.DNS,
+		AutoDns:                v.AutoDNS,
 		UserLevel:              v.UserLevel,
 		AutoSystemRoutingTable: v.AutoSystemRoutingTable,
 	}

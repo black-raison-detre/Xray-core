@@ -21,4 +21,5 @@ message Config {
   string auto_outbounds_interface = 7;
   string desc = 8;
   IcmpMode icmp_mode = 9;
+  bool auto_dns = 10;
 }

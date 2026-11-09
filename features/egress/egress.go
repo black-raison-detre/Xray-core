@@ -21,11 +21,12 @@ type Options struct {
 // Interface is a stable adapter identity and the family-specific indices used
 // when binding sockets on Windows.
 type Interface struct {
-	Name      string   `json:"name"`
-	Index     uint32   `json:"index"`
-	IPv6Index uint32   `json:"ipv6Index"`
-	LUID      string   `json:"luid"`
-	Addresses []string `json:"addresses"`
+	Name       string   `json:"name"`
+	Index      uint32   `json:"index"`
+	IPv6Index  uint32   `json:"ipv6Index"`
+	LUID       string   `json:"luid"`
+	Addresses  []string `json:"addresses"`
+	DNSServers []string `json:"dnsServers"`
 }
 
 // FamilyStatus describes the selected or detected adapter for one address

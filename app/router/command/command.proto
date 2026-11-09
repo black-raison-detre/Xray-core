@@ -128,6 +128,7 @@ message EgressInterface {
   uint32 ipv6_index = 3;
   string luid = 4;
   repeated string addresses = 5;
+  repeated string dns_servers = 6;
 }
 
 message EgressFamilyStatus {

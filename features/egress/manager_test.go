@@ -2,6 +2,8 @@ package egress
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -133,5 +135,37 @@ func TestConcurrentRefreshCallersRespectContextWhileForceQueueIsFull(t *testing.
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("concurrent forced refresh callers outlived their request context")
+	}
+}
+
+func TestAdapterDNSFaultRedactsPublicBindingsUntilCurrentGenerationApplies(t *testing.T) {
+	snapshot := Select(testObservation(), Options{}, true)
+	snapshot.Generation = 9
+	manager := &Manager{snapshot: snapshot}
+	manager.ReportAdapterDNSUpdateError(errors.New("set DNS failed"))
+	public := manager.Snapshot()
+	if public.State != "error" || public.IPv4.Interface != nil || public.IPv6.Interface != nil {
+		t.Fatalf("public DNS fault snapshot exposed selected bindings: %+v", public)
+	}
+	if !strings.HasPrefix(public.Error, AdapterDNSUpdateError) {
+		t.Fatalf("public DNS fault error = %q", public.Error)
+	}
+	if manager.BindingForNetwork("tcp4") != nil {
+		t.Fatal("DNS fault retained an outbound IPv4 binding")
+	}
+	updateSnapshot := manager.DNSUpdateSnapshot()
+	if updateSnapshot.State != "active" || updateSnapshot.IPv4.Interface == nil {
+		t.Fatalf("DNS updater could not retry from physical selection: %+v", updateSnapshot)
+	}
+	if generation, ipv4, ipv6 := PlanDNSForTUN(updateSnapshot); generation != 9 || len(ipv4) != 1 || len(ipv6) != 1 {
+		t.Fatalf("DNS retry plan = generation %d, IPv4 %v, IPv6 %v", generation, ipv4, ipv6)
+	}
+	manager.ReportAdapterDNSUpdateSuccess(8)
+	if manager.Snapshot().State != "error" {
+		t.Fatal("stale DNS generation cleared a newer adapter DNS failure")
+	}
+	manager.ReportAdapterDNSUpdateSuccess(9)
+	if manager.Snapshot().State != "active" || manager.BindingForNetwork("tcp4") == nil {
+		t.Fatal("successful current-generation DNS update did not restore active bindings")
 	}
 }

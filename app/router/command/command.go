@@ -133,11 +133,12 @@ func egressInterfaceMessage(iface *egress.Interface) *EgressInterface {
 		return nil
 	}
 	return &EgressInterface{
-		Name:      iface.Name,
-		Index:     iface.Index,
-		Ipv6Index: iface.IPv6Index,
-		Luid:      iface.LUID,
-		Addresses: append([]string(nil), iface.Addresses...),
+		Name:       iface.Name,
+		Index:      iface.Index,
+		Ipv6Index:  iface.IPv6Index,
+		Luid:       iface.LUID,
+		Addresses:  append([]string(nil), iface.Addresses...),
+		DnsServers: append([]string(nil), iface.DNSServers...),
 	}
 }
 

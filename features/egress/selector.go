@@ -273,6 +273,7 @@ func copyInterface(iface *Interface) *Interface {
 	}
 	copy := *iface
 	copy.Addresses = append([]string(nil), iface.Addresses...)
+	copy.DNSServers = append([]string(nil), iface.DNSServers...)
 	return &copy
 }
 
