@@ -2,9 +2,9 @@ package observatory
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"slices"
 	"sort"
 	"sync"
@@ -15,7 +15,6 @@ import (
 	v2net "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal/done"
-	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/common/utils"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/extension"
@@ -32,7 +31,10 @@ type Observer struct {
 	statusLock sync.Mutex
 	status     []*OutboundStatus
 
-	finished *done.Instance
+	finished  *done.Instance
+	probeLock sync.Mutex
+	clients   map[string]*probeClient
+	closed    bool
 
 	ohm        outbound.Manager
 	dispatcher routing.Dispatcher
@@ -49,7 +51,12 @@ func (o *Observer) Type() interface{} {
 }
 
 func (o *Observer) Start() error {
-	if o.config != nil && len(o.config.SubjectSelector) != 0 {
+	o.probeLock.Lock()
+	defer o.probeLock.Unlock()
+	if o.closed {
+		return errors.New("observatory is closed")
+	}
+	if o.finished == nil && o.config != nil && len(o.config.SubjectSelector) != 0 {
 		o.finished = done.New()
 		go o.background()
 	}
@@ -57,8 +64,15 @@ func (o *Observer) Start() error {
 }
 
 func (o *Observer) Close() error {
+	o.probeLock.Lock()
+	defer o.probeLock.Unlock()
+	o.closed = true
 	if o.finished != nil {
-		return o.finished.Close()
+		_ = o.finished.Close()
+	}
+	for tag, client := range o.clients {
+		client.close()
+		delete(o.clients, tag)
 	}
 	return nil
 }
@@ -82,7 +96,7 @@ func (o *Observer) background() {
 
 		if len(outbounds) == 0 {
 			errors.LogWarning(o.ctx, "no outbound matches subjectSelector ", o.config.SubjectSelector)
-			time.Sleep(sleepTime)
+			o.wait(sleepTime)
 			continue
 		}
 
@@ -94,7 +108,9 @@ func (o *Observer) background() {
 				if o.finished.Done() {
 					return
 				}
-				time.Sleep(sleepTime)
+				if !o.wait(sleepTime) {
+					return
+				}
 			}
 			continue
 		}
@@ -116,11 +132,31 @@ func (o *Observer) background() {
 				return
 			}
 		}
-		time.Sleep(sleepTime)
+		o.wait(sleepTime)
+	}
+}
+
+func (o *Observer) wait(interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-o.finished.Wait():
+		return false
 	}
 }
 
 func (o *Observer) clearRemovedOutbounds(outbounds []string) {
+	o.probeLock.Lock()
+	for tag, client := range o.clients {
+		if !slices.Contains(outbounds, tag) {
+			client.close()
+			delete(o.clients, tag)
+		}
+	}
+	o.probeLock.Unlock()
+
 	o.statusLock.Lock()
 	defer o.statusLock.Unlock()
 	if len(o.status) == 0 {
@@ -135,67 +171,133 @@ func (o *Observer) clearRemovedOutbounds(outbounds []string) {
 	o.status = pruned
 }
 
-func (o *Observer) probe(outbound string) ProbeResult {
-	errorCollectorForRequest := newErrorCollector()
+// Each outbound owns its pool: sharing a transport across tags could reuse a
+// connection without calling DialContext and therefore probe the wrong outbound.
+type probeClient struct {
+	sync.Mutex
+	handler   outbound.Handler
+	ctx       context.Context
+	cancel    context.CancelFunc
+	transport *http.Transport
+	client    *http.Client
+	errors    *errorCollector
+}
 
-	httpTransport := http.Transport{
-		Proxy: func(*http.Request) (*url.URL, error) {
-			return nil, nil
-		},
+func (c *probeClient) close() {
+	c.cancel()
+	c.transport.CloseIdleConnections()
+}
+
+type probeConn struct {
+	net.Conn
+	cancel context.CancelFunc
+}
+
+func (c *probeConn) Close() error {
+	c.cancel()
+	return c.Conn.Close()
+}
+
+func (o *Observer) clientForOutbound(tag string) (*probeClient, error) {
+	o.probeLock.Lock()
+	defer o.probeLock.Unlock()
+	if o.closed {
+		return nil, errors.New("observatory is closed")
+	}
+	handler := o.ohm.GetHandler(tag)
+	if client := o.clients[tag]; client != nil {
+		if handler != nil && client.handler == handler {
+			return client, nil
+		}
+		// A removed/replaced handler must never inherit the old handler's pool.
+		client.close()
+		delete(o.clients, tag)
+	}
+	if handler == nil {
+		return nil, errors.New("outbound no longer exists: ", tag)
+	}
+	ctx, cancel := context.WithCancel(o.ctx)
+	client := &probeClient{handler: handler, ctx: ctx, cancel: cancel, errors: newErrorCollector()}
+	client.transport = &http.Transport{
 		DialContext: func(ctx context.Context, network string, addr string) (net.Conn, error) {
-			var connection net.Conn
-			taskErr := task.Run(ctx, func() error {
-				// MUST use Xray's built in context system
-				dest, err := v2net.ParseDestination(network + ":" + addr)
-				if err != nil {
-					return errors.New("cannot understand address").Base(err)
-				}
-				trackedCtx := session.TrackedConnectionError(o.ctx, errorCollectorForRequest)
-				conn, err := tagged.Dialer(trackedCtx, o.dispatcher, dest, outbound)
-				if err != nil {
-					return errors.New("cannot dial remote address ", dest).Base(err)
-				}
-				connection = conn
-				return nil
-			})
-			if taskErr != nil {
-				return nil, errors.New("cannot finish connection").Base(taskErr)
+			dest, err := v2net.ParseDestination(network + ":" + addr)
+			if err != nil {
+				return nil, errors.New("cannot understand address").Base(err)
 			}
-			return connection, nil
+			// Preserve the core's context values and the connection lifetime, while
+			// still allowing the HTTP dial to be canceled before it completes.
+			dialCtx, cancel := context.WithCancel(client.ctx)
+			stop := context.AfterFunc(ctx, cancel)
+			trackedCtx := session.TrackedConnectionError(dialCtx, client.errors)
+			conn, err := tagged.Dialer(trackedCtx, o.dispatcher, dest, tag)
+			stop()
+			if err != nil {
+				cancel()
+				return nil, errors.New("cannot dial remote address ", dest).Base(err)
+			}
+			if err := dialCtx.Err(); err != nil {
+				_ = conn.Close()
+				cancel()
+				return nil, err
+			}
+			return &probeConn{Conn: conn, cancel: cancel}, nil
 		},
 		TLSHandshakeTimeout: time.Second * 5,
+		IdleConnTimeout:     time.Second * 90,
+		MaxIdleConns:        1,
+		MaxIdleConnsPerHost: 1,
 	}
-	httpClient := &http.Client{
-		Transport: &httpTransport,
+	client.client = &http.Client{
+		Transport: client.transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-		Jar:     nil,
 		Timeout: time.Second * 5,
 	}
+	if o.clients == nil {
+		o.clients = make(map[string]*probeClient)
+	}
+	o.clients[tag] = client
+	return client, nil
+}
+
+func (o *Observer) probe(outbound string) ProbeResult {
 	var GETTime time.Duration
-	err := task.Run(o.ctx, func() error {
+	var underlyingError error
+	err := func() error {
+		client, err := o.clientForOutbound(outbound)
+		if err != nil {
+			return err
+		}
+		client.Lock()
+		defer client.Unlock()
+		client.errors.reset()
+		defer func() { underlyingError = client.errors.UnderlyingError() }()
 		startTime := time.Now()
 		probeURL := "https://www.google.com/generate_204"
 		if o.config.ProbeUrl != "" {
 			probeURL = o.config.ProbeUrl
 		}
-		req, _ := http.NewRequest(http.MethodGet, probeURL, nil)
+		req, err := http.NewRequestWithContext(client.ctx, http.MethodGet, probeURL, nil)
+		if err != nil {
+			return errors.New("invalid probe URL").Base(err)
+		}
 		utils.TryDefaultHeadersWith(req.Header, "nav")
-		response, err := httpClient.Do(req)
+		response, err := client.client.Do(req)
 		if err != nil {
 			return errors.New("outbound failed to relay connection").Base(err)
 		}
-		if response.Body != nil {
-			response.Body.Close()
-		}
 		endTime := time.Now()
 		GETTime = endTime.Sub(startTime)
+		// Reading small responses to EOF enables reuse beyond generate_204.
+		// Bound the drain; large/unfinished bodies may close this connection.
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64*1024))
+		_ = response.Body.Close()
 		return nil
-	})
+	}()
 	if err != nil {
 		errorMessage := "the outbound " + outbound + " is dead: GET request failed:" + err.Error() + "with outbound handler report underlying connection failed"
-		errors.LogInfoInner(o.ctx, errorCollectorForRequest.UnderlyingError(), errorMessage)
+		errors.LogInfoInner(o.ctx, underlyingError, errorMessage)
 		return ProbeResult{Alive: false, LastErrorReason: errorMessage}
 	}
 	errors.LogInfo(o.ctx, "the outbound ", outbound, " is alive:", GETTime.Seconds())
