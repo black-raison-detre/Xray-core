@@ -29,6 +29,18 @@ func (s *LocalNameServer) QueryIP(ctx context.Context, domain string, option dns
 	return
 }
 
+// QueryIPWithTrace is the cancellable form used only by a request-scoped DNS
+// trace. Ordinary lookups keep the existing system resolver call path.
+func (s *LocalNameServer) QueryIPWithTrace(ctx context.Context, domain string, option dns.IPOption) (ips []net.IP, ttl uint32, err error) {
+	start := time.Now()
+	ips, ttl, err = s.client.LookupIPWithContext(ctx, domain, option)
+	if len(ips) > 0 {
+		errors.LogInfo(ctx, "Localhost got answer: ", domain, " -> ", ips)
+		log.Record(&log.DNSLog{Server: s.Name(), Domain: domain, Result: ips, Status: log.DNSQueried, Elapsed: time.Since(start), Error: err})
+	}
+	return
+}
+
 // Name implements Server.
 func (s *LocalNameServer) Name() string {
 	return "localhost"

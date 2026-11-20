@@ -18,6 +18,7 @@ import (
 )
 
 type TunConfig struct {
+	AutoDNS                bool     `json:"autoDNS"`
 	ICMPMode               string   `json:"icmpMode"`
 	Name                   string   `json:"name"`
 	Desc                   string   `json:"desc"`
@@ -33,6 +34,7 @@ type TunConfig struct {
 
 func (v *TunConfig) Build() (proto.Message, error) {
 	config := &tun.Config{
+		AutoDns:                v.AutoDNS,
 		Name:                   v.Name,
 		Desc:                   v.Desc,
 		MTU:                    v.MTU,

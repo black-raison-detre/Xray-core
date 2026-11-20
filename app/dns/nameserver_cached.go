@@ -18,6 +18,16 @@ type CachedNameserver interface {
 	sendQuery(ctx context.Context, noResponseErrCh chan<- error, fqdn string, option dns.IPOption)
 }
 
+type dnsResolveTraceCacheKey struct{}
+
+// A diagnostic must not join or lead ordinary singleflight work: cancelling
+// a losing trace resolver must not cancel a normal lookup, and a diagnostic
+// waiter must remain bounded by its own deadline. Resolver cache contents and
+// publication stay shared, just as for independent ordinary upstream queries.
+func isolatedDNSResolveTraceContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, dnsResolveTraceCacheKey{}, true)
+}
+
 // queryIP is called from dns.Server->queryIPTimeout
 func queryIP(ctx context.Context, s CachedNameserver, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
 	fqdn := Fqdn(domain)
@@ -55,6 +65,19 @@ func pull(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOpt
 }
 
 func fetch(ctx context.Context, s CachedNameserver, fqdn string, option dns.IPOption) ([]net.IP, uint32, error) {
+	if isolated, _ := ctx.Value(dnsResolveTraceCacheKey{}).(bool); isolated {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		ret := doFetch(ctx, s, fqdn, option)
+		// The legacy single-family merge reports a missing record before its
+		// transport errors. A trace must retain its own cancellation/deadline
+		// rather than misreporting that terminal state as a resolver miss.
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		return ret.ips, ret.ttl, ret.error
+	}
 	key := fqdn
 	switch {
 	case option.IPv4Enable && option.IPv6Enable:

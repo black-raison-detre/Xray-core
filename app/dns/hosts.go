@@ -17,6 +17,13 @@ type StaticHosts struct {
 	matcher   geodata.DomainMatcher
 }
 
+// StaticHostTrace describes only data observable in the configured hosts map.
+type StaticHostTrace struct {
+	Status         string
+	ResolvedDomain string
+	Aliases        []string
+}
+
 // NewStaticHosts creates a new StaticHosts instance.
 func NewStaticHosts(hosts []*Config_HostMapping) (*StaticHosts, error) {
 	reps := make([][]net.Address, 0, len(hosts))
@@ -95,18 +102,35 @@ func (h *StaticHosts) lookupInternal(domain string) ([]net.Address, error) {
 }
 
 func (h *StaticHosts) lookup(domain string, option dns.IPOption, maxDepth int) ([]net.Address, error) {
+	return h.lookupWithTrace(domain, option, maxDepth, nil)
+}
+
+func (h *StaticHosts) lookupWithTrace(domain string, option dns.IPOption, maxDepth int, trace *StaticHostTrace) ([]net.Address, error) {
 	domain = strings.ToLower(domain)
 	switch addrs, err := h.lookupInternal(domain); {
 	case err != nil:
 		return nil, err
 	case addrs == nil: // Not recorded in static hosts, return nil
+		if trace != nil && len(trace.Aliases) == 0 {
+			trace.Status = "miss"
+		} else if trace != nil {
+			trace.ResolvedDomain = domain
+		}
 		return nil, nil
 	case len(addrs) == 0: // Domain recorded, but no valid IP returned
+		if trace != nil {
+			trace.Status = "empty"
+		}
 		return addrs, nil
 	case len(addrs) == 1 && addrs[0].Family().IsDomain(): // Try to unwrap domain
+		if trace != nil {
+			trace.Aliases = append(trace.Aliases, domain+" -> "+addrs[0].Domain())
+			trace.Status = "alias"
+			trace.ResolvedDomain = addrs[0].Domain()
+		}
 		errors.LogDebug(context.Background(), "found replaced domain: ", domain, " -> ", addrs[0].Domain(), ". Try to unwrap it")
 		if maxDepth > 0 {
-			unwrapped, err := h.lookup(addrs[0].Domain(), option, maxDepth-1)
+			unwrapped, err := h.lookupWithTrace(addrs[0].Domain(), option, maxDepth-1, trace)
 			if err != nil {
 				return nil, err
 			}
@@ -116,14 +140,32 @@ func (h *StaticHosts) lookup(domain string, option dns.IPOption, maxDepth int) (
 		}
 		return addrs, nil
 	default: // IP record found, return a non-nil IP array
+		if trace != nil {
+			trace.ResolvedDomain = domain
+			if len(trace.Aliases) > 0 {
+				trace.Status = "alias-resolved"
+			} else {
+				trace.Status = "static"
+			}
+		}
 		return filterIP(addrs, option), nil
 	}
 }
 
 // Lookup returns IP addresses or proxied domain for the given domain, if exists in this StaticHosts.
 func (h *StaticHosts) Lookup(domain string, option dns.IPOption) ([]net.Address, error) {
+	addrs, _, err := h.LookupWithTrace(domain, option)
+	return addrs, err
+}
+
+// LookupWithTrace returns the configured host result and whether the query
+// matched a static IP, an alias, or no hosts entry. It does not inspect cache
+// state or trigger any resolver queries.
+func (h *StaticHosts) LookupWithTrace(domain string, option dns.IPOption) ([]net.Address, StaticHostTrace, error) {
+	trace := StaticHostTrace{Status: "miss"}
 	if h.matcher == nil {
-		return nil, nil
+		return nil, trace, nil
 	}
-	return h.lookup(domain, option, 5)
+	addrs, err := h.lookupWithTrace(domain, option, 5, &trace)
+	return addrs, trace, err
 }

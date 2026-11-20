@@ -3,9 +3,6 @@ package tun
 import (
 	"context"
 	"math"
-	"net/netip"
-	"strings"
-	"syscall"
 	"time"
 
 	observatoryapp "github.com/xtls/xray-core/app/observatory"
@@ -18,12 +15,12 @@ import (
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/transport"
-	"github.com/xtls/xray-core/transport/internet"
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
@@ -43,6 +40,8 @@ type Handler struct {
 	sniffingRequest session.SniffingRequest
 	uplinkCounter   stats.Counter
 	downlinkCounter stats.Counter
+	egressManager   *egress.Manager
+	outboundClose   func()
 }
 
 type tunUDPStatsWriter struct {
@@ -175,40 +174,17 @@ func (t *Handler) Start() error {
 		return err
 	}
 
-	if t.config.AutoOutboundsInterface != "" {
+	if t.config.AutoOutboundsInterface != "" || t.config.GetAutoDns() {
 		tunIndex, err := tunInterface.Index()
 		if err != nil {
 			_ = tunInterface.Close()
 			return err
 		}
-		if t.config.AutoOutboundsInterface == "auto" {
-			t.config.AutoOutboundsInterface = ""
+		if err := configureOutboundInterface(t, tunInterface, tunIndex); err != nil {
+			_ = tunInterface.Close()
+			_ = t.closeEgress()
+			return err
 		}
-		updater = &InterfaceUpdater{tunIndex: tunIndex, fixedName: t.config.AutoOutboundsInterface}
-		updater.Update()
-		internet.RegisterDialerController(func(network, address string, c syscall.RawConn) error {
-			iface := updater.Get()
-			if iface == nil {
-				errors.LogInfo(context.Background(), "[tun] falied to set interface > iface == nil")
-				return errors.New("iface not found")
-			}
-			var controlErr, sockErr error
-			controlErr = c.Control(func(fd uintptr) {
-				addrPort, _ := netip.ParseAddrPort(address)
-				// skip loopback
-				if addrPort.Addr().IsLoopback() || strings.HasPrefix(strings.ToLower(address), "localhost:") {
-					return
-				}
-				err := setinterface(network, address, fd, iface)
-				if err != nil {
-					sockErr = errors.New("[tun] falied to set interface").Base(err)
-				}
-			})
-			if sockErr != nil {
-				return sockErr
-			}
-			return controlErr
-		})
 	}
 
 	errors.LogInfo(t.ctx, tunName, " created")
@@ -221,6 +197,7 @@ func (t *Handler) Start() error {
 	tunStack, err := NewStack(t.ctx, tunStackOptions, t)
 	if err != nil {
 		_ = tunInterface.Close()
+		_ = t.closeEgress()
 		return err
 	}
 
@@ -228,6 +205,7 @@ func (t *Handler) Start() error {
 	if err != nil {
 		_ = tunStack.Close()
 		_ = tunInterface.Close()
+		_ = t.closeEgress()
 		return err
 	}
 
@@ -235,6 +213,7 @@ func (t *Handler) Start() error {
 	if err != nil {
 		_ = tunStack.Close()
 		_ = tunInterface.Close()
+		_ = t.closeEgress()
 		return err
 	}
 
@@ -246,6 +225,7 @@ func (t *Handler) Start() error {
 		if err := c.ConfigureSystemDNS(t.ctx, t.tag); err != nil {
 			_ = tunStack.Close()
 			_ = tunInterface.Close()
+			_ = t.closeEgress()
 			return errors.New("unable to set the system DNS (remove autoSystemDnsToGateway to run without)").Base(err)
 		}
 	}
@@ -316,7 +296,19 @@ func (t *Handler) Close() error {
 	if t.cancel != nil {
 		t.cancel()
 	}
-	return errors.Combine(common.CloseIfExists(t.stack), common.CloseIfExists(t.tun))
+	return errors.Combine(common.CloseIfExists(t.stack), common.CloseIfExists(t.tun), t.closeEgress())
+}
+
+func (t *Handler) closeEgress() error {
+	if t.outboundClose != nil {
+		t.outboundClose()
+		t.outboundClose = nil
+	}
+	if t.egressManager != nil {
+		t.egressManager.Close()
+		t.egressManager = nil
+	}
+	return nil
 }
 
 // Network implements proxy.Inbound

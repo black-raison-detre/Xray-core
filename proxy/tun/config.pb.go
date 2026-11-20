@@ -80,6 +80,7 @@ type Config struct {
 	AutoSystemDnsToGateway bool                   `protobuf:"varint,9,opt,name=auto_system_dns_to_gateway,json=autoSystemDnsToGateway,proto3" json:"auto_system_dns_to_gateway,omitempty"`
 	AutoSystemWfpBlockLeak []string               `protobuf:"bytes,10,rep,name=auto_system_wfp_block_leak,json=autoSystemWfpBlockLeak,proto3" json:"auto_system_wfp_block_leak,omitempty"`
 	IcmpMode               IcmpMode               `protobuf:"varint,11,opt,name=icmp_mode,json=icmpMode,proto3,enum=xray.proxy.tun.IcmpMode" json:"icmp_mode,omitempty"`
+	AutoDns                bool                   `protobuf:"varint,12,opt,name=auto_dns,json=autoDns,proto3" json:"auto_dns,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -191,11 +192,18 @@ func (x *Config) GetIcmpMode() IcmpMode {
 	return IcmpMode_FAKE
 }
 
+func (x *Config) GetAutoDns() bool {
+	if x != nil {
+		return x.AutoDns
+	}
+	return false
+}
+
 var File_proxy_tun_config_proto protoreflect.FileDescriptor
 
 const file_proxy_tun_config_proto_rawDesc = "" +
 	"\n" +
-	"\x16proxy/tun/config.proto\x12\x0exray.proxy.tun\"\xb1\x03\n" +
+	"\x16proxy/tun/config.proto\x12\x0exray.proxy.tun\"\xcc\x03\n" +
 	"\x06Config\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03MTU\x18\x02 \x01(\rR\x03MTU\x12\x18\n" +
@@ -209,7 +217,8 @@ const file_proxy_tun_config_proto_rawDesc = "" +
 	"\x1aauto_system_dns_to_gateway\x18\t \x01(\bR\x16autoSystemDnsToGateway\x12:\n" +
 	"\x1aauto_system_wfp_block_leak\x18\n" +
 	" \x03(\tR\x16autoSystemWfpBlockLeak\x125\n" +
-	"\ticmp_mode\x18\v \x01(\x0e2\x18.xray.proxy.tun.IcmpModeR\bicmpMode*\x1f\n" +
+	"\ticmp_mode\x18\v \x01(\x0e2\x18.xray.proxy.tun.IcmpModeR\bicmpMode\x12\x19\n" +
+	"\bauto_dns\x18\f \x01(\bR\aautoDns*\x1f\n" +
 	"\bIcmpMode\x12\b\n" +
 	"\x04FAKE\x10\x00\x12\t\n" +
 	"\x05PROBE\x10\x01BL\n" +

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
@@ -253,64 +254,182 @@ func (s *DNS) MayUseSystemResolver() bool {
 
 // LookupIP implements dns.Client.
 func (s *DNS) LookupIP(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
+	return s.lookupIP(s.ctx, domain, option, nil)
+}
+
+// LookupIPWithTrace performs a request-scoped lookup through the configured
+// hosts and resolver policy and returns only decisions observed for this call.
+func (s *DNS) LookupIPWithTrace(ctx context.Context, domain string, option dns.IPOption) (dns.LookupTrace, error) {
+	trace := dns.LookupTrace{QueryName: strings.TrimSuffix(domain, ".")}
+	ips, ttl, err := s.lookupIP(ctx, domain, option, &trace)
+	trace.Answers = make([]string, 0, len(ips))
+	for _, ip := range ips {
+		trace.Answers = append(trace.Answers, ip.String())
+	}
+	trace.TTL = ttl
+	return trace, err
+}
+
+func (s *DNS) lookupIP(ctx context.Context, domain string, option dns.IPOption, trace *dns.LookupTrace) ([]net.IP, uint32, error) {
 	// Normalize the FQDN form query
 	domain = strings.TrimSuffix(domain, ".")
 	if domain == "" {
 		return nil, 0, errors.New("empty domain name")
 	}
+	if trace != nil {
+		trace.ResolvedName = domain
+	}
+	requestedOption := option
 
 	if s.checkSystem {
 		supportIPv4, supportIPv6 := utils.CheckRoutes()
 		option.IPv4Enable = option.IPv4Enable && supportIPv4
 		option.IPv6Enable = option.IPv6Enable && supportIPv6
+		if trace != nil {
+			trace.Strategy = "system route availability"
+		}
 	} else {
 		option.IPv4Enable = option.IPv4Enable && s.ipOption.IPv4Enable
 		option.IPv6Enable = option.IPv6Enable && s.ipOption.IPv6Enable
+		if trace != nil {
+			trace.Strategy = ipOptionStrategy(s.ipOption)
+		}
+	}
+	if trace != nil {
+		trace.Strategy += "; requested " + ipOptionStrategy(&requestedOption) + "; effective " + ipOptionStrategy(&option)
 	}
 
 	if !option.IPv4Enable && !option.IPv6Enable {
+		if trace != nil {
+			trace.HostsStatus = "not checked"
+		}
 		return nil, 0, dns.ErrEmptyResponse
 	}
 
 	// Static host lookup
-	switch addrs, err := s.hosts.Lookup(domain, option); {
+	var hostTrace StaticHostTrace
+	switch addrs, details, err := s.hosts.LookupWithTrace(domain, option); {
 	case err != nil:
+		if trace != nil {
+			trace.HostsStatus = "error"
+		}
 		if go_errors.Is(err, dns.ErrEmptyResponse) {
 			return nil, 0, dns.ErrEmptyResponse
 		}
 		return nil, 0, errors.New("returning nil for domain ", domain).Base(err)
 	case addrs == nil: // Domain not recorded in static host
+		hostTrace = details
 		break
 	case len(addrs) == 0: // Domain recorded, but no valid IP returned (e.g. IPv4 address with only IPv6 enabled)
+		hostTrace = details
+		if trace != nil {
+			trace.HostsStatus = hostTrace.Status
+			trace.Aliases = append([]string(nil), hostTrace.Aliases...)
+		}
 		return nil, 0, dns.ErrEmptyResponse
 	case len(addrs) == 1 && addrs[0].Family().IsDomain(): // Domain replacement
+		hostTrace = details
 		errors.LogInfo(s.ctx, "domain replaced: ", domain, " -> ", addrs[0].Domain())
 		domain = addrs[0].Domain()
 	default: // Successfully found ip records in static host
+		hostTrace = details
 		errors.LogInfo(s.ctx, "returning ", len(addrs), " IP(s) for domain ", domain, " -> ", addrs)
 		ips, err := toNetIP(addrs)
 		if err != nil {
 			return nil, 0, err
 		}
+		if trace != nil {
+			trace.HostsStatus = hostTrace.Status
+			trace.Aliases = append([]string(nil), hostTrace.Aliases...)
+			if hostTrace.ResolvedDomain != "" {
+				trace.ResolvedName = hostTrace.ResolvedDomain
+			}
+		}
 		return ips, 10, nil // Hosts ttl is 10
+	}
+	if trace != nil {
+		trace.HostsStatus = hostTrace.Status
+		trace.Aliases = append([]string(nil), hostTrace.Aliases...)
+		if hostTrace.ResolvedDomain != "" {
+			domain = hostTrace.ResolvedDomain
+		}
+		trace.ResolvedName = domain
 	}
 
 	// Name servers lookup
 	if s.script != nil {
+		if trace != nil {
+			trace.Fallback = "Lua DNS policy (tracing unsupported)"
+			return nil, 0, errors.New("DNS resolve tracing is unavailable for Lua DNS policies; the configured script was not executed")
+		}
 		return s.script.query(domain, option)
 	}
 	if s.enableParallelQuery {
+		if trace != nil {
+			return s.traceParallelQuery(ctx, domain, option, trace)
+		}
 		return s.parallelQuery(domain, option)
 	} else {
+		if trace != nil {
+			return s.traceSerialQuery(ctx, domain, option, trace)
+		}
 		return s.serialQuery(domain, option)
 	}
 }
 
+func ipOptionStrategy(option *dns.IPOption) string {
+	if option == nil {
+		return "unspecified"
+	}
+	switch {
+	case option.IPv4Enable && option.IPv6Enable:
+		return "IPv4 and IPv6"
+	case option.IPv4Enable:
+		return "IPv4 only"
+	case option.IPv6Enable:
+		return "IPv6 only"
+	default:
+		return "no address families"
+	}
+}
+
 func (s *DNS) sortClients(domain string) []*Client {
+	selection := s.selectClients(domain, true)
+	clients := make([]*Client, 0, len(selection.entries))
+	for _, entry := range selection.entries {
+		clients = append(clients, entry.client)
+	}
+	return clients
+}
+
+type selectedDNSClient struct {
+	client       *Client
+	index        int
+	matchedRules []string
+	selection    string
+}
+
+type dnsClientSelection struct {
+	entries  []selectedDNSClient
+	fallback string
+}
+
+func (s *DNS) selectClients(domain string, emitLogs bool) dnsClientSelection {
 	clients := make([]*Client, 0, len(s.clients))
 	clientUsed := make([]bool, len(s.clients))
 	clientNames := make([]string, 0, len(s.clients))
 	domainRules := []string{}
+	selection := dnsClientSelection{entries: make([]selectedDNSClient, 0, len(s.clients))}
+	entryByClient := make(map[int]int, len(s.clients))
+	addClient := func(idx int, reason string) {
+		clientUsed[idx] = true
+		entryByClient[idx] = len(selection.entries)
+		selection.entries = append(selection.entries, selectedDNSClient{
+			client: s.clients[idx], index: idx, selection: reason,
+		})
+		clients = append(clients, s.clients[idx])
+		clientNames = append(clientNames, s.clients[idx].Name())
+	}
 
 	// Priority domain matching
 	hasMatch := false
@@ -324,49 +443,76 @@ func (s *DNS) sortClients(domain string) []*Client {
 			client := s.clients[info.clientIdx]
 			domainRule := info.domainRule
 			domainRules = append(domainRules, fmt.Sprintf("%s(DNS idx:%d)", domainRule, info.clientIdx))
+			idx := int(info.clientIdx)
+			if selectedIndex, exists := entryByClient[idx]; exists {
+				selection.entries[selectedIndex].matchedRules = append(selection.entries[selectedIndex].matchedRules, domainRule)
+			}
 			if clientUsed[info.clientIdx] {
 				continue
 			}
-			clientUsed[info.clientIdx] = true
-			clients = append(clients, client)
-			clientNames = append(clientNames, client.Name())
+			addClient(idx, "domain match")
+			selection.entries[len(selection.entries)-1].matchedRules = append(selection.entries[len(selection.entries)-1].matchedRules, domainRule)
 			hasMatch = true
 			if client.finalQuery {
-				logDecision(s.ctx, domain, domainRules, clientNames)
-				return clients
+				selection.entries[len(selection.entries)-1].selection = "domain match; final query"
+				if emitLogs {
+					logDecision(s.ctx, domain, domainRules, clientNames)
+				}
+				selection.fallback = "stopped by final query"
+				return selection
 			}
 		}
 	}
 
-	if !(s.disableFallback || s.disableFallbackIfMatch && hasMatch) {
+	switch {
+	case s.disableFallback:
+		selection.fallback = "disabled by DNS policy"
+	case s.disableFallbackIfMatch && hasMatch:
+		selection.fallback = "disabled after domain match"
+	default:
+		selection.fallback = "enabled"
+	}
+	if selection.fallback == "enabled" {
 		// Default round-robin query
 		for idx, client := range s.clients {
 			if clientUsed[idx] || client.skipFallback {
 				continue
 			}
-			clientUsed[idx] = true
-			clients = append(clients, client)
-			clientNames = append(clientNames, client.Name())
+			addClient(idx, "fallback")
 			if client.finalQuery {
-				logDecision(s.ctx, domain, domainRules, clientNames)
-				return clients
+				selection.entries[len(selection.entries)-1].selection = "fallback; final query"
+				if emitLogs {
+					logDecision(s.ctx, domain, domainRules, clientNames)
+				}
+				selection.fallback = "stopped by final query"
+				return selection
 			}
 		}
 	}
 
-	logDecision(s.ctx, domain, domainRules, clientNames)
+	if emitLogs {
+		logDecision(s.ctx, domain, domainRules, clientNames)
+	}
 
-	if len(clients) == 0 {
+	if len(selection.entries) == 0 {
 		if len(s.clients) > 0 {
-			clients = append(clients, s.clients[0])
-			clientNames = append(clientNames, s.clients[0].Name())
-			errors.LogWarning(s.ctx, "domain ", domain, " will use the first DNS: ", clientNames)
+			addClient(0, "default resolver (no other resolver selected)")
+			if selection.fallback == "enabled" {
+				selection.fallback = "no eligible fallback resolver; first configured resolver used"
+			} else {
+				selection.fallback += "; first configured resolver used by default"
+			}
+			if emitLogs {
+				errors.LogWarning(s.ctx, "domain ", domain, " will use the first DNS: ", clientNames)
+			}
 		} else {
-			errors.LogError(s.ctx, "no DNS clients available for domain ", domain, " and no default clients configured")
+			if emitLogs {
+				errors.LogError(s.ctx, "no DNS clients available for domain ", domain, " and no default clients configured")
+			}
 		}
 	}
 
-	return clients
+	return selection
 }
 
 func logDecision(ctx context.Context, domain string, domainRules []string, clientNames []string) {
@@ -400,6 +546,213 @@ func mergeQueryErrors(domain string, errs []error) error {
 		noRNF = errRecordNotFound
 	}
 	return errors.New("returning nil for domain ", domain).Base(noRNF)
+}
+
+func (s *DNS) traceSerialQuery(ctx context.Context, domain string, option dns.IPOption, trace *dns.LookupTrace) ([]net.IP, uint32, error) {
+	selection := s.selectClients(domain, false)
+	trace.Fallback = selection.fallback
+	trace.Resolvers = makeResolverTrace(selection.entries)
+	var errs []error
+	for index, entry := range selection.entries {
+		attempt := &trace.Resolvers[index]
+		if !option.FakeEnable && strings.EqualFold(entry.client.Name(), "FakeDNS") {
+			attempt.Status = "skipped"
+			attempt.Error = "FakeDNS is disabled for this lookup"
+			errs = append(errs, dns.ErrEmptyResponse)
+			continue
+		}
+		started := time.Now()
+		ips, ttl, err := entry.client.QueryIPWithTrace(ctx, domain, option)
+		attempt.LatencyMs = time.Since(started).Milliseconds()
+		setResolverTraceOutcome(attempt, ips, err)
+		if len(ips) > 0 {
+			attempt.Status = "winner"
+			for pending := index + 1; pending < len(trace.Resolvers); pending++ {
+				trace.Resolvers[pending].Status = "not attempted"
+				trace.Resolvers[pending].Error = "a prior resolver returned an answer"
+			}
+			return ips, ttl, nil
+		}
+		if err == nil {
+			err = dns.ErrEmptyResponse
+		}
+		errs = append(errs, err)
+	}
+	return nil, 0, mergeQueryErrors(domain, errs)
+}
+
+func (s *DNS) traceParallelQuery(ctx context.Context, domain string, option dns.IPOption, trace *dns.LookupTrace) ([]net.IP, uint32, error) {
+	selection := s.selectClients(domain, false)
+	trace.Fallback = selection.fallback
+	trace.Resolvers = makeResolverTrace(selection.entries)
+	if len(selection.entries) == 0 {
+		return nil, 0, mergeQueryErrors(domain, nil)
+	}
+	clients := make([]*Client, len(selection.entries))
+	for i, entry := range selection.entries {
+		clients[i] = entry.client
+	}
+
+	queryCtx, cancel := context.WithCancel(ctx)
+	resultsChan := make(chan queryResult, len(clients))
+	for i, client := range clients {
+		if !option.FakeEnable && strings.EqualFold(client.Name(), "FakeDNS") {
+			resultsChan <- queryResult{err: dns.ErrEmptyResponse, index: i}
+			continue
+		}
+		go func(i int, client *Client) {
+			started := time.Now()
+			ips, ttl, err := client.QueryIPWithTrace(queryCtx, domain, option)
+			resultsChan <- queryResult{ips: ips, ttl: ttl, err: err, index: i, elapsed: time.Since(started)}
+		}(i, client)
+	}
+
+	groups, groupOf := makeGroups(clients)
+	results := make([]*queryResult, len(clients))
+	pending := make([]int, len(groups))
+	for gi, group := range groups {
+		pending[gi] = group.end - group.start + 1
+	}
+
+	nextGroup := 0
+	completed := 0
+	winner := -1
+	for completed < len(clients) {
+		result := <-resultsChan
+		completed++
+		results[result.index] = &result
+		traceResult := &trace.Resolvers[result.index]
+		traceResult.LatencyMs = result.elapsed.Milliseconds()
+		if !option.FakeEnable && strings.EqualFold(clients[result.index].Name(), "FakeDNS") {
+			traceResult.Status = "skipped"
+			traceResult.Error = "FakeDNS is disabled for this lookup"
+		} else {
+			setResolverTraceOutcome(traceResult, result.ips, result.err)
+		}
+
+		groupIndex := groupOf[result.index]
+		pending[groupIndex]--
+		for nextGroup < len(groups) {
+			group := groups[nextGroup]
+			for i := group.start; i <= group.end; i++ {
+				if results[i] != nil && results[i].err == nil && len(results[i].ips) > 0 {
+					winner = i
+					break
+				}
+			}
+			if winner >= 0 || pending[nextGroup] > 0 {
+				break
+			}
+			nextGroup++
+		}
+		if winner >= 0 {
+			markResolverWinner(trace, winner)
+			break
+		}
+	}
+
+	// A traced lookup owns its own context. Cancel the losing attempts as soon
+	// as the winning policy group is known, then collect their terminal status
+	// before returning so no goroutine can mutate request state afterwards.
+	if winner >= 0 {
+		cancel()
+	}
+	for completed < len(clients) {
+		result := <-resultsChan
+		completed++
+		results[result.index] = &result
+		traceResult := &trace.Resolvers[result.index]
+		traceResult.LatencyMs = result.elapsed.Milliseconds()
+		if !option.FakeEnable && strings.EqualFold(clients[result.index].Name(), "FakeDNS") {
+			traceResult.Status = "skipped"
+			traceResult.Error = "FakeDNS is disabled for this lookup"
+		} else {
+			setResolverTraceOutcome(traceResult, result.ips, result.err)
+		}
+		if winner >= 0 && result.index != winner && result.err == nil && len(result.ips) > 0 {
+			traceResult.Status = "not selected"
+			traceResult.Selection += "; answer not selected by policy order"
+		}
+	}
+	cancel()
+
+	if winner >= 0 {
+		return results[winner].ips, results[winner].ttl, nil
+	}
+	errs := make([]error, 0, len(results))
+	for _, result := range results {
+		if result == nil {
+			errs = append(errs, context.Canceled)
+			continue
+		}
+		err := result.err
+		if err == nil {
+			err = dns.ErrEmptyResponse
+		}
+		errs = append(errs, err)
+	}
+	return nil, 0, mergeQueryErrors(domain, errs)
+}
+
+func markResolverWinner(trace *dns.LookupTrace, winner int) {
+	for index := range trace.Resolvers {
+		if index == winner {
+			trace.Resolvers[index].Status = "winner"
+			continue
+		}
+		if trace.Resolvers[index].Status == "success" {
+			trace.Resolvers[index].Status = "not selected"
+			trace.Resolvers[index].Selection += "; answer not selected by policy order"
+		}
+	}
+}
+
+func makeResolverTrace(entries []selectedDNSClient) []dns.ResolverTrace {
+	trace := make([]dns.ResolverTrace, len(entries))
+	for i, entry := range entries {
+		trace[i] = dns.ResolverTrace{
+			Index:        uint32(entry.index),
+			Name:         entry.client.Name(),
+			MatchedRules: append([]string(nil), entry.matchedRules...),
+			Selection:    entry.selection,
+			Status:       "pending",
+		}
+	}
+	return trace
+}
+
+func setResolverTraceOutcome(trace *dns.ResolverTrace, ips []net.IP, err error) {
+	trace.Answers = make([]string, 0, len(ips))
+	for _, ip := range ips {
+		trace.Answers = append(trace.Answers, ip.String())
+	}
+	switch {
+	case len(ips) > 0 && err == nil:
+		trace.Status = "success"
+	case go_errors.Is(err, context.DeadlineExceeded):
+		trace.Status = "timeout"
+		trace.Error = boundedTraceError(err)
+	case go_errors.Is(err, context.Canceled):
+		trace.Status = "cancelled"
+		trace.Error = boundedTraceError(err)
+	case err == nil, go_errors.Is(err, dns.ErrEmptyResponse):
+		trace.Status = "empty"
+		trace.Error = "resolver returned no address for the requested family"
+	default:
+		trace.Status = "error"
+		trace.Error = boundedTraceError(err)
+	}
+}
+
+func boundedTraceError(err error) string {
+	if err == nil {
+		return ""
+	}
+	value := strings.TrimSpace(err.Error())
+	if len(value) > 240 {
+		return value[:240]
+	}
+	return value
 }
 
 func (s *DNS) serialQuery(domain string, option dns.IPOption) ([]net.IP, uint32, error) {
@@ -480,10 +833,11 @@ func (s *DNS) parallelQuery(domain string, option dns.IPOption) ([]net.IP, uint3
 }
 
 type queryResult struct {
-	ips   []net.IP
-	ttl   uint32
-	err   error
-	index int
+	ips     []net.IP
+	ttl     uint32
+	err     error
+	index   int
+	elapsed time.Duration
 }
 
 func asyncQueryAll(domain string, option dns.IPOption, clients []*Client, ctx context.Context) chan queryResult {

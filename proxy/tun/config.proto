@@ -23,4 +23,5 @@ message Config {
   bool auto_system_dns_to_gateway = 9;
   repeated string auto_system_wfp_block_leak = 10;
   IcmpMode icmp_mode = 11;
+  bool auto_dns = 12;
 }

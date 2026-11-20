@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wintun"
@@ -36,19 +37,31 @@ func procyield(cycles uint32)
 type WindowsTun struct {
 	sync.RWMutex
 
-	options  *Config
-	adapter  *wintun.Adapter
-	session  wintun.Session
-	readWait windows.Handle
-	luid     winipcfg.LUID
-	cbr      winipcfg.ChangeCallback
-	cbi      winipcfg.ChangeCallback
-	guard    outboundGuard
-	wfp      windows.Handle
-	resolver *savedResolver
-	skipStop chan struct{}
-	skipDone chan struct{}
-	closed   bool
+	options       *Config
+	adapter       *wintun.Adapter
+	session       wintun.Session
+	readWait      windows.Handle
+	luid          winipcfg.LUID
+	cbr           winipcfg.ChangeCallback
+	cbi           winipcfg.ChangeCallback
+	guard         outboundGuard
+	egressManager *egress.Manager
+	egressStop    chan struct{}
+	egressDone    chan struct{}
+	dnsApplied    *tunDNSPlan
+	dnsErr        string
+	wfp           windows.Handle
+	resolver      *savedResolver
+	skipStop      chan struct{}
+	skipDone      chan struct{}
+	closed        bool
+}
+
+func (t *WindowsTun) setEgressManager(manager *egress.Manager) {
+	t.Lock()
+	t.egressManager = manager
+	t.guard.manager = manager
+	t.Unlock()
 }
 
 // WindowsTun implements Tun
@@ -214,7 +227,7 @@ startOver:
 	// nowhere or back into Xray. Not skipped are those another interface uses
 	// as well, as that could leave no server at all. As those can change at
 	// any time, they are looked at again as often as Go rereads its servers.
-	if len(dns) > 0 {
+	if len(dns) > 0 && !t.options.GetAutoDns() {
 		skipped, err := tunOnlyDNS(t.luid, dns)
 		if err != nil {
 			skipped = dns
@@ -291,7 +304,7 @@ startOver:
 		}
 	}
 
-	if updater != nil {
+	if updater != nil || t.egressManager != nil {
 		// Xray's own connections have to stay out of the IP versions routed
 		// to the TUN, which needs Windows to honor the binding to updater's
 		// interface.
@@ -321,16 +334,121 @@ startOver:
 		}
 		t.cbi = cbi
 	}
+	if t.egressManager != nil {
+		if t.options.GetAutoDns() {
+			if err := t.updateAutoDNS(); err != nil {
+				return errors.New("unable to set live TUN DNS servers").Base(err)
+			}
+		}
+		t.startEgressRefresh()
+	}
 	return nil
+}
+
+func (t *WindowsTun) updateAutoDNS() error {
+	plan := planTUNAdapterDNS(egress.DNSUpdateSnapshot())
+	t.Lock()
+	if t.closed {
+		t.Unlock()
+		return errors.New("TUN interface is closed")
+	}
+	if equalTUNDNSPlan(t.dnsApplied, &plan) {
+		t.dnsErr = ""
+		t.Unlock()
+		egress.ReportAdapterDNSUpdateSuccess(plan.generation)
+		t.refreshAutoDNSSkippedServers(plan)
+		return nil
+	}
+	applyErr := applyTUNAdapterDNS(plan, func(family string, servers []netip.Addr) error {
+		addressFamily := winipcfg.AddressFamily(windows.AF_INET)
+		if family == "ipv6" {
+			addressFamily = winipcfg.AddressFamily(windows.AF_INET6)
+		}
+		return t.luid.SetDNS(addressFamily, servers, nil)
+	})
+	if applyErr != nil {
+		t.reportAutoDNSError(applyErr)
+		t.Unlock()
+		return applyErr
+	}
+	t.dnsApplied = &plan
+	t.dnsErr = ""
+	t.Unlock()
+	egress.ReportAdapterDNSUpdateSuccess(plan.generation)
+	t.refreshAutoDNSSkippedServers(plan)
+	if err := flushDNSCache(); err != nil {
+		errors.LogInfoInner(context.Background(), err, "[tun] unable to flush DNS cache after adapter DNS update")
+	}
+	return nil
+}
+
+func (t *WindowsTun) reportAutoDNSError(err error) {
+	wrapped := errors.New("set app-owned TUN adapter DNS: ").Base(err)
+	egress.ReportAdapterDNSUpdateError(wrapped)
+	if t.dnsErr != wrapped.Error() {
+		t.dnsErr = wrapped.Error()
+		errors.LogError(context.Background(), wrapped)
+	}
+}
+
+func (t *WindowsTun) refreshAutoDNSSkippedServers(plan tunDNSPlan) {
+	dns := append(append([]netip.Addr(nil), plan.ipv4...), plan.ipv6...)
+	if len(dns) == 0 {
+		internet.SkipDNSServers(nil)
+		return
+	}
+	skipped, err := tunOnlyDNS(t.luid, dns)
+	if err != nil {
+		skipped = dns
+	}
+	internet.SkipDNSServers(skipped)
+}
+
+func (t *WindowsTun) startEgressRefresh() {
+	t.Lock()
+	if t.closed || t.egressStop != nil {
+		t.Unlock()
+		return
+	}
+	t.egressStop, t.egressDone = make(chan struct{}), make(chan struct{})
+	stop, done := t.egressStop, t.egressDone
+	t.Unlock()
+
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if t.options.GetAutoDns() {
+					_ = t.updateAutoDNS()
+				}
+				t.guard.check()
+			}
+		}
+	}()
 }
 
 func (t *WindowsTun) Close() error {
 	t.Lock()
-	defer t.Unlock()
 	if t.closed {
+		t.Unlock()
 		return nil
 	}
 	t.closed = true
+	stop, done := t.egressStop, t.egressDone
+	if stop != nil {
+		close(stop)
+	}
+	t.Unlock()
+	if done != nil {
+		<-done
+	}
+	t.Lock()
+	defer t.Unlock()
 
 	if t.cbr != nil {
 		t.cbr.Unregister()
@@ -358,7 +476,7 @@ func (t *WindowsTun) Close() error {
 		<-t.skipDone
 	}
 	internet.SkipDNSServers(nil)
-	if len(t.options.DNS) > 0 || len(t.options.AutoSystemRoutingTable) > 0 {
+	if len(t.options.DNS) > 0 || len(t.options.AutoSystemRoutingTable) > 0 || t.options.GetAutoDns() {
 		flushDNSCache()
 	}
 	if t.session != (wintun.Session{}) {

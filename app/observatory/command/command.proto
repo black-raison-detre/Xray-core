@@ -105,6 +105,51 @@ message TestResolverReachabilityResponse {
   ResolverProbeResult result = 1;
 }
 
+enum DNSResolveTraceQueryType {
+  DNS_RESOLVE_TRACE_QUERY_TYPE_UNSPECIFIED = 0;
+  DNS_RESOLVE_TRACE_QUERY_TYPE_A = 1;
+  DNS_RESOLVE_TRACE_QUERY_TYPE_AAAA = 2;
+}
+
+message DNSResolveTraceRequest {
+  string query_name = 1;
+  DNSResolveTraceQueryType query_type = 2;
+}
+
+message DNSResolveTraceStage {
+  string kind = 1;
+  string label = 2;
+  string value = 3;
+  string detail = 4;
+}
+
+message DNSResolveTraceResolver {
+  uint32 index = 1;
+  string name = 2;
+  repeated string matched_rules = 3;
+  string selection = 4;
+  string status = 5;
+  repeated string answers = 6;
+  string error = 7;
+  int64 latency_milliseconds = 8;
+}
+
+message DNSResolveTraceResponse {
+  string query_name = 1;
+  DNSResolveTraceQueryType query_type = 2;
+  string resolved_name = 3;
+  repeated string aliases = 4;
+  string hosts_status = 5;
+  string strategy = 6;
+  string fallback = 7;
+  repeated DNSResolveTraceResolver resolvers = 8;
+  repeated string answers = 9;
+  uint32 ttl = 10;
+  int64 latency_milliseconds = 11;
+  string error = 12;
+  repeated DNSResolveTraceStage stages = 13;
+}
+
 service ObservatoryService {
   rpc GetOutboundStatus(GetOutboundStatusRequest)
       returns (GetOutboundStatusResponse) {}
@@ -112,6 +157,8 @@ service ObservatoryService {
       returns (TestOutboundCapabilitiesResponse) {}
   rpc TestResolverReachability(TestResolverReachabilityRequest)
       returns (TestResolverReachabilityResponse) {}
+  rpc TraceDNSLookup(DNSResolveTraceRequest)
+      returns (DNSResolveTraceResponse) {}
 }
 
 

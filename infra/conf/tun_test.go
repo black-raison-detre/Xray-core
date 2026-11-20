@@ -72,3 +72,17 @@ func TestTunConfigAutoSystemWfpBlockLeakUnknown(t *testing.T) {
 		t.Error("an unknown autoSystemWfpBlockLeak value was accepted")
 	}
 }
+
+func TestTunAutoDNSConfig(t *testing.T) {
+	message, err := (&TunConfig{Name: "xray0", AutoDNS: true}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := message.(*tun.Config)
+	if !config.GetAutoDns() {
+		t.Fatal("AutoDNS was not mapped into the TUN core config")
+	}
+	if config.AutoSystemDnsToGateway || len(config.AutoSystemWfpBlockLeak) != 0 {
+		t.Fatal("adapter DNS recovery must not enable system DNS takeover or WFP filters")
+	}
+}

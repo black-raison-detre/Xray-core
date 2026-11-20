@@ -23,6 +23,7 @@ type service struct {
 	capabilityMu             sync.Mutex
 	activeCapabilityChecks   map[string]struct{}
 	capabilityDNSLookupSlots chan struct{}
+	dnsTraceSlots            chan struct{}
 }
 
 func (s *service) GetOutboundStatus(ctx context.Context, request *GetOutboundStatusRequest) (*GetOutboundStatusResponse, error) {
@@ -50,6 +51,7 @@ func init() {
 			ctx:                      ctx,
 			v:                        s,
 			capabilityDNSLookupSlots: make(chan struct{}, maxOutstandingCapabilityDNSLookups),
+			dnsTraceSlots:            make(chan struct{}, maxConcurrentDNSResolveTraces),
 		}
 		err := s.RequireFeatures(func(Observatory extension.Observatory) {
 			sv.observatory = Observatory

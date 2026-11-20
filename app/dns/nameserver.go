@@ -13,6 +13,7 @@ import (
 	"github.com/xtls/xray-core/common/utils"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/dns"
+	"github.com/xtls/xray-core/features/egress"
 	"github.com/xtls/xray-core/features/routing"
 )
 
@@ -47,6 +48,9 @@ type Client struct {
 // NewServer creates a name server object according to the network destination url.
 func NewServer(ctx context.Context, dest net.Destination, dispatcher routing.Dispatcher, disableCache bool, serveStale bool, serveExpiredTTL uint32, clientIP net.IP) (Server, error) {
 	if address := dest.Address; address.Family().IsDomain() {
+		if address.Domain() == egress.SystemEgressDNSAddress {
+			return NewSystemEgressNameServer(dispatcher, disableCache, serveStale, serveExpiredTTL, clientIP, dest.Port), nil
+		}
 		u, err := url.Parse(address.Domain())
 		if err != nil {
 			return nil, err
@@ -167,6 +171,17 @@ func (c *Client) Name() string {
 
 // QueryIP sends DNS query to the name server with the client's IP.
 func (c *Client) QueryIP(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
+	return c.queryIP(ctx, domain, option, false)
+}
+
+// QueryIPWithTrace uses the same filters and policy as QueryIP, while allowing
+// servers with non-context-aware legacy APIs to provide a cancellable trace
+// path without changing ordinary lookups.
+func (c *Client) QueryIPWithTrace(ctx context.Context, domain string, option dns.IPOption) ([]net.IP, uint32, error) {
+	return c.queryIP(isolatedDNSResolveTraceContext(ctx), domain, option, true)
+}
+
+func (c *Client) queryIP(ctx context.Context, domain string, option dns.IPOption, trace bool) ([]net.IP, uint32, error) {
 	if c.checkSystem {
 		supportIPv4, supportIPv6 := utils.CheckRoutes()
 		option.IPv4Enable = option.IPv4Enable && supportIPv4
@@ -182,7 +197,20 @@ func (c *Client) QueryIP(ctx context.Context, domain string, option dns.IPOption
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutMs)
 	ctx = session.ContextWithInbound(ctx, &session.Inbound{Tag: c.tag})
-	ips, ttl, err := c.server.QueryIP(ctx, domain, option)
+	var ips []net.IP
+	var ttl uint32
+	var err error
+	if trace {
+		if server, ok := c.server.(interface {
+			QueryIPWithTrace(context.Context, string, dns.IPOption) ([]net.IP, uint32, error)
+		}); ok {
+			ips, ttl, err = server.QueryIPWithTrace(ctx, domain, option)
+		} else {
+			ips, ttl, err = c.server.QueryIP(ctx, domain, option)
+		}
+	} else {
+		ips, ttl, err = c.server.QueryIP(ctx, domain, option)
+	}
 	cancel()
 
 	if err != nil {

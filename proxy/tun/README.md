@@ -104,6 +104,26 @@ Here is simple Xray config snippet to enable the inbound:
 `desc` sets the Windows Wintun adapter tunnel type and defaults to `Wintun`.
 It is ignored on other platforms.
 
+### Windows egress and adapter DNS recovery
+
+The managed Windows TUN can select an outbound adapter independently for IPv4
+and IPv6. `autoOutboundsInterface: "auto"` follows the lowest-cost eligible
+default route for each family; a fixed interface name selects that adapter for
+both families. The RoutingService `GetEgressStatus` API reports the selected
+interfaces, route metrics, candidate adapters, and DNS servers.
+
+`autoDNS: true` makes the TUN follow the DNS servers on those selected physical
+adapters as network selection changes. DNS settings are applied only to the
+app-owned Wintun interface and are refreshed from network notifications with a
+periodic fallback. Managed DNS can use `system+egress` to query the numeric
+servers on the selected adapters for the destination family.
+
+This recovery does not change physical-interface DNS, enable
+`autoSystemDnsToGateway`, or enable `autoSystemWfpBlockLeak`; those options keep
+their separate explicit behavior and defaults. Outbound interface bindings
+and the weak-host-send guard are session scoped, and the guard restores any
+setting it changed when the TUN stops.
+
 ## SUPPORTED FEATURES
 
 - IPv4 and IPv6

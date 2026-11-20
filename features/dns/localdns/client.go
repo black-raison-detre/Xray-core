@@ -31,10 +31,22 @@ func (*Client) Close() error { return nil }
 
 // LookupIP implements Client.
 func (c *Client) LookupIP(host string, option dns.IPOption) ([]net.IP, uint32, error) {
+	return c.lookupIP(context.Background(), host, option, false)
+}
+
+// LookupIPWithContext is the context-aware equivalent used by a traced DNS
+// request. It follows the same resolver selection as LookupIP.
+func (c *Client) LookupIPWithContext(ctx context.Context, host string, option dns.IPOption) ([]net.IP, uint32, error) {
+	return c.lookupIP(ctx, host, option, true)
+}
+
+func (c *Client) lookupIP(ctx context.Context, host string, option dns.IPOption, contextAware bool) ([]net.IP, uint32, error) {
 	var ips []net.IP
 	var err error
 	if len(internet.Controllers) > 0 {
-		ips, err = c.r.LookupIP(context.Background(), "ip", host)
+		ips, err = c.r.LookupIP(ctx, "ip", host)
+	} else if contextAware {
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
 	} else {
 		ips, err = net.LookupIP(host)
 	}

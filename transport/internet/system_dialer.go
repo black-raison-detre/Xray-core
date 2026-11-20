@@ -5,6 +5,7 @@ import (
 	go_errors "errors"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,7 +19,67 @@ var (
 	Controllers           []func(network, address string, c syscall.RawConn) error
 	ControllersLock       sync.Mutex
 	effectiveSystemDialer SystemDialer = &DefaultSystemDialer{}
+	packetConnPolicyIDs   atomic.Uint64
+	packetConnPolicies    []packetConnPolicyRegistration
 )
+
+// PacketConnPolicy is an immutable per-socket plan for system UDP connections.
+// Control configures the socket before use, and AllowDestination rejects sends
+// to address families that the captured plan cannot bind safely.
+type PacketConnPolicy struct {
+	Control          func(network, address string, c syscall.RawConn) error
+	AllowDestination func(destination net.Addr) error
+}
+
+// PacketConnPolicyFactory creates the immutable policy for one UDP packet
+// connection from its requested network and local bind address.
+type PacketConnPolicyFactory func(network, address string) *PacketConnPolicy
+
+type packetConnControllerRawConn struct {
+	syscall.RawConn
+}
+
+// IsPacketConnControllerRawConn reports whether a raw socket is being passed
+// to a dialer controller for a DefaultSystemDialer UDP packet connection.
+// Such sockets use PacketConnPolicy for per-socket egress binding; controllers
+// can use this marker to avoid applying a second binding plan.
+func IsPacketConnControllerRawConn(connection syscall.RawConn) bool {
+	_, ok := connection.(packetConnControllerRawConn)
+	return ok
+}
+
+type packetConnPolicyRegistration struct {
+	id      uint64
+	factory PacketConnPolicyFactory
+}
+
+// RegisterPacketConnPolicyFactory registers a factory used by the default
+// system dialer to prepare and guard new UDP packet connections. The returned
+// function removes the factory and is safe to call more than once.
+func RegisterPacketConnPolicyFactory(factory PacketConnPolicyFactory) (func(), error) {
+	if factory == nil {
+		return nil, errors.New("nil packet connection policy factory")
+	}
+
+	ControllersLock.Lock()
+	id := packetConnPolicyIDs.Add(1)
+	packetConnPolicies = append(packetConnPolicies, packetConnPolicyRegistration{id: id, factory: factory})
+	ControllersLock.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			ControllersLock.Lock()
+			for index, registration := range packetConnPolicies {
+				if registration.id == id {
+					packetConnPolicies = append(packetConnPolicies[:index], packetConnPolicies[index+1:]...)
+					break
+				}
+			}
+			ControllersLock.Unlock()
+		})
+	}, nil
+}
 
 type SystemDialer interface {
 	Dial(ctx context.Context, source net.Address, destination net.Destination, sockopt *SocketConfig) (net.Conn, error)
@@ -70,12 +131,28 @@ func (d *DefaultSystemDialer) Dial(ctx context.Context, src net.Address, dest ne
 			}
 		}
 		var lc net.ListenConfig
-		if sockopt != nil || len(Controllers) > 0 {
+		packetPolicies := activePacketConnPolicies(srcAddr.Network(), srcAddr.String())
+		hasPolicyControl := false
+		hasPolicyFilter := false
+		for _, policy := range packetPolicies {
+			hasPolicyControl = hasPolicyControl || policy.Control != nil
+			hasPolicyFilter = hasPolicyFilter || policy.AllowDestination != nil
+		}
+		if sockopt != nil || len(Controllers) > 0 || hasPolicyControl {
 			lc.Control = func(network, _ string, c syscall.RawConn) error {
 				// ListenPacket supplies a local address; dialer controllers need the destination.
 				for _, ctl := range Controllers {
-					if err := ctl(network, destAddr.String(), c); err != nil {
+					controllerConn := packetConnControllerRawConn{RawConn: c}
+					if err := ctl(network, destAddr.String(), controllerConn); err != nil {
 						return errors.New("failed to apply external controller").Base(err)
+					}
+				}
+				for _, policy := range packetPolicies {
+					if policy.Control == nil {
+						continue
+					}
+					if err := policy.Control(network, destAddr.String(), c); err != nil {
+						return errors.New("failed to apply packet connection policy").Base(err)
 					}
 				}
 				if sockopt != nil {
@@ -106,6 +183,9 @@ func (d *DefaultSystemDialer) Dial(ctx context.Context, src net.Address, dest ne
 		}
 		if err != nil {
 			return nil, err
+		}
+		if hasPolicyFilter {
+			packetConn = &packetConnFamilyGuard{PacketConn: packetConn, policies: packetPolicies}
 		}
 		return &net.PacketConnWrapper{
 			PacketConn: packetConn,
@@ -169,6 +249,40 @@ func (d *DefaultSystemDialer) Dial(ctx context.Context, src net.Address, dest ne
 	}
 
 	return dialer.DialContext(ctx, dest.Network.SystemString(), dest.NetAddr())
+}
+
+func activePacketConnPolicies(network, address string) []*PacketConnPolicy {
+	ControllersLock.Lock()
+	factories := make([]PacketConnPolicyFactory, 0, len(packetConnPolicies))
+	for _, registration := range packetConnPolicies {
+		factories = append(factories, registration.factory)
+	}
+	ControllersLock.Unlock()
+
+	policies := make([]*PacketConnPolicy, 0, len(factories))
+	for _, factory := range factories {
+		if policy := factory(network, address); policy != nil {
+			policies = append(policies, policy)
+		}
+	}
+	return policies
+}
+
+type packetConnFamilyGuard struct {
+	net.PacketConn
+	policies []*PacketConnPolicy
+}
+
+func (conn *packetConnFamilyGuard) WriteTo(payload []byte, destination net.Addr) (int, error) {
+	for _, policy := range conn.policies {
+		if policy.AllowDestination == nil {
+			continue
+		}
+		if err := policy.AllowDestination(destination); err != nil {
+			return 0, err
+		}
+	}
+	return conn.PacketConn.WriteTo(payload, destination)
 }
 
 func (d *DefaultSystemDialer) DestIpAddress() net.IP {
