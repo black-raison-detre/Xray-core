@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/xtls/xray-core/proxy/anytls/internal/pipe"
 )
 
 var (
@@ -19,6 +23,8 @@ var (
 type Session struct {
 	rw             io.ReadWriteCloser
 	writeMu        sync.Mutex
+	controlMu      sync.Mutex // serializes shared transport deadline changes
+	deadlineMu     sync.Mutex // prevents a concurrent write from undoing shutdown
 	streams        sync.Map
 	nextID         atomic.Uint32
 	closed         atomic.Bool
@@ -31,6 +37,7 @@ type Session struct {
 	settings       atomic.Bool
 	padding        atomic.Pointer[PaddingFactory]
 	onPadding      func(*PaddingFactory)
+	onClose        func() // installed before Serve; releases transport context
 	packet         uint32
 	pending        []Frame // client SETTINGS/SYN are deliberately coalesced with first PSH
 }
@@ -123,6 +130,10 @@ func (s *Session) RejectStream(st *Stream, causes ...error) error {
 func (s *Session) AckStream(st *Stream) error { return s.AcceptStream(st) }
 
 func (s *Session) NewStream() (*Stream, error) {
+	return s.newStreamWithClose(nil)
+}
+
+func (s *Session) newStreamWithClose(onClose func()) (*Stream, error) {
 	if s.closed.Load() || !s.settings.Load() {
 		return nil, ErrSessionClosed
 	}
@@ -131,12 +142,15 @@ func (s *Session) NewStream() (*Stream, error) {
 		return nil, ErrSessionClosed
 	}
 	st := newStream(s, id)
+	st.onClose = onClose
 	s.streams.Store(id, st)
 	var err error
 	if s.server {
 		err = s.write(Frame{Command: CommandSYN, SessionID: id})
-	} else {
+	} else if id == 1 {
 		err = s.queue(Frame{Command: CommandSYN, SessionID: id})
+	} else {
+		err = s.write(Frame{Command: CommandSYN, SessionID: id})
 	}
 	if err != nil {
 		s.streams.Delete(id)
@@ -156,13 +170,32 @@ func (s *Session) queue(f Frame) error {
 }
 
 func (s *Session) write(f Frame) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	// Upstream v0.0.13 arms this before waiting for the transport mutex:
+	// a control frame must also interrupt an already blocked data write.
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	s.deadlineMu.Lock()
+	if s.closed.Load() {
+		s.deadlineMu.Unlock()
+		return ErrSessionClosed
+	}
 	if d, ok := s.rw.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		_ = d.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		defer d.SetWriteDeadline(time.Time{})
 	}
-	return s.writeLocked([]Frame{f}, !s.server)
+	s.deadlineMu.Unlock()
+	s.writeMu.Lock()
+	err := s.writeLocked([]Frame{f}, !s.server)
+	s.writeMu.Unlock()
+	if err != nil {
+		_ = s.Close()
+	} else {
+		s.deadlineMu.Lock()
+		if d, ok := s.rw.(interface{ SetWriteDeadline(time.Time) error }); ok && !s.closed.Load() {
+			_ = d.SetWriteDeadline(time.Time{})
+		}
+		s.deadlineMu.Unlock()
+	}
+	return err
 }
 
 func encodeFrames(frames []Frame) ([]byte, error) {
@@ -258,8 +291,18 @@ func (s *Session) writeShapedLocked(b []byte) error {
 }
 
 func (s *Session) Close() error {
+	s.deadlineMu.Lock()
 	if s.closed.Swap(true) {
+		s.deadlineMu.Unlock()
 		return nil
+	}
+	// Interrupt blocked TLS writes before Close tries to send close_notify.
+	if d, ok := s.rw.(interface{ SetDeadline(time.Time) error }); ok {
+		_ = d.SetDeadline(time.Now())
+	}
+	s.deadlineMu.Unlock()
+	if s.onClose != nil {
+		s.onClose()
 	}
 	s.streams.Range(func(_, v any) bool { v.(*Stream).closeRemote(); return true })
 	return s.rw.Close()
@@ -267,6 +310,7 @@ func (s *Session) Close() error {
 
 func invalid(s *Session) error { _ = s.Close(); return ErrProtocol }
 func (s *Session) Serve() error {
+	defer s.Close()
 	for {
 		f, err := ReadFrame(s.rw)
 		if err != nil {
@@ -332,7 +376,7 @@ func (s *Session) Serve() error {
 			}
 			st, ok := s.streams.Load(f.SessionID)
 			if !ok {
-				return invalid(s)
+				continue // a stream can close before its admission reply arrives
 			}
 			st.(*Stream).ack(f.Data)
 		case CommandPSH:
@@ -341,7 +385,7 @@ func (s *Session) Serve() error {
 			}
 			st, ok := s.streams.Load(f.SessionID)
 			if !ok {
-				return invalid(s)
+				continue // discard data already in flight when a stream closed
 			}
 			st.(*Stream).deliver(f.Data)
 		case CommandFIN:
@@ -350,7 +394,7 @@ func (s *Session) Serve() error {
 			}
 			st, ok := s.streams.LoadAndDelete(f.SessionID)
 			if !ok {
-				return invalid(s)
+				continue // simultaneous local and remote FIN is normal
 			}
 			st.(*Stream).closeRemote()
 		case CommandWaste:
@@ -401,21 +445,22 @@ func (s *Session) WaitV2(d time.Duration) bool {
 }
 
 type Stream struct {
-	s       *Session
-	id      uint32
-	readCh  chan []byte
-	done    chan struct{}
-	once    sync.Once
-	ackCh   chan struct{}
-	readMu  sync.Mutex
-	remain  []byte
-	ackMu   sync.Mutex
-	ackErr  error
-	onClose func()
+	s             *Session
+	id            uint32
+	pipeR         *pipe.PipeReader
+	pipeW         *pipe.PipeWriter
+	writeDeadline pipe.PipeDeadline
+	done          chan struct{}
+	once          sync.Once
+	ackCh         chan struct{}
+	ackMu         sync.Mutex
+	ackErr        error
+	onClose       func()
 }
 
 func newStream(s *Session, id uint32) *Stream {
-	return &Stream{s: s, id: id, readCh: make(chan []byte, 16), done: make(chan struct{}), ackCh: make(chan struct{})}
+	r, w := pipe.Pipe()
+	return &Stream{s: s, id: id, pipeR: r, pipeW: w, writeDeadline: pipe.MakePipeDeadline(), done: make(chan struct{}), ackCh: make(chan struct{})}
 }
 func (st *Stream) ID() uint32 { return st.id }
 func (st *Stream) Write(p []byte) (int, error) {
@@ -423,6 +468,8 @@ func (st *Stream) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 	select {
+	case <-st.writeDeadline.Wait():
+		return 0, os.ErrDeadlineExceeded
 	case <-st.done:
 		return 0, ErrSessionClosed
 	default:
@@ -440,6 +487,7 @@ func (st *Stream) Write(p []byte) (int, error) {
 	err := st.s.writeLocked(frames, true)
 	st.s.writeMu.Unlock()
 	if err != nil {
+		_ = st.s.Close()
 		return 0, err
 	}
 	return sumFrameData(frames), nil
@@ -454,51 +502,75 @@ func sumFrameData(fs []Frame) int {
 }
 
 func (st *Stream) Read(p []byte) (int, error) {
-	st.readMu.Lock()
-	defer st.readMu.Unlock()
-	for {
-		if len(st.remain) > 0 {
-			n := copy(p, st.remain)
-			st.remain = st.remain[n:]
-			return n, nil
-		}
-		select {
-		case b := <-st.readCh:
-			st.remain = b
-		case <-st.done:
-			return 0, io.EOF
-		}
-	}
+	return st.pipeR.Read(p)
 }
 
 func (st *Stream) Close() error {
+	var closed bool
 	st.once.Do(func() {
 		close(st.done)
+		_ = st.pipeR.Close()
 		st.s.streams.Delete(st.id)
-		_ = st.s.write(Frame{Command: CommandFIN, SessionID: st.id})
+		closed = true
+	})
+	if closed {
+		// Keep callbacks outside Once: disable-reuse closes the Session and
+		// control-write failure may also reenter its stream cleanup.
+		err := st.s.write(Frame{Command: CommandFIN, SessionID: st.id})
 		if st.onClose != nil {
 			st.onClose()
 		}
-	})
+		return err
+	}
 	return nil
 }
 
 func (st *Stream) closeRemote() {
+	var closed bool
 	st.once.Do(func() {
 		close(st.done)
+		_ = st.pipeW.Close()
 		st.s.streams.Delete(st.id)
+		closed = true
+	})
+	if closed {
 		if st.onClose != nil {
 			st.onClose()
 		}
-	})
+	}
 }
 
 func (st *Stream) deliver(b []byte) {
-	select {
-	case <-st.done:
-		return
-	case st.readCh <- append([]byte(nil), b...):
+	// Synchronous delivery is intentional: FIN cannot overtake unread PSH.
+	_, _ = st.pipeW.Write(b)
+}
+
+func (st *Stream) SetReadDeadline(t time.Time) error { return st.pipeR.SetReadDeadline(t) }
+
+// SetWriteDeadline retains upstream's pre-write deadline check. In-flight
+// transport writes are interrupted by control-write deadlines or Session.Close.
+func (st *Stream) SetWriteDeadline(t time.Time) error {
+	st.writeDeadline.Set(t)
+	return nil
+}
+
+func (st *Stream) SetDeadline(t time.Time) error {
+	_ = st.SetWriteDeadline(t)
+	return st.SetReadDeadline(t)
+}
+
+func (st *Stream) LocalAddr() net.Addr {
+	if c, ok := st.s.rw.(interface{ LocalAddr() net.Addr }); ok {
+		return c.LocalAddr()
 	}
+	return nil
+}
+
+func (st *Stream) RemoteAddr() net.Addr {
+	if c, ok := st.s.rw.(interface{ RemoteAddr() net.Addr }); ok {
+		return c.RemoteAddr()
+	}
+	return nil
 }
 
 func (st *Stream) ack(data []byte) {

@@ -32,9 +32,8 @@ func TestV2NegotiationAndStreamRemainder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Write([]byte("abcdef")); err != nil {
-		t.Fatal(err)
-	}
+	written := make(chan error, 1)
+	go func() { _, err := st.Write([]byte("abcdef")); written <- err }()
 	select {
 	case peer := <-accepted:
 		buf := make([]byte, 2)
@@ -47,6 +46,9 @@ func TestV2NegotiationAndStreamRemainder(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("server did not receive stream")
+	}
+	if err := <-written; err != nil {
+		t.Fatal(err)
 	}
 	if !client.WaitV2(time.Second) {
 		t.Fatal("v2 negotiation did not finish")
@@ -94,6 +96,7 @@ func TestWaitSYNACKCachesLegacyNegotiation(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
 	defer b.Close()
+	go func() { _, _ = io.Copy(io.Discard, b) }()
 	s := NewSession(a)
 	if err := s.StartClient(DefaultPaddingFactory()); err != nil {
 		t.Fatal(err)
